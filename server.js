@@ -50,7 +50,8 @@ gmail.classifier = async (subject, body, category) => {
 const calendar = new CalendarConnector({
   clientId: process.env.GCAL_CLIENT_ID,
   clientSecret: process.env.GCAL_CLIENT_SECRET,
-  calendarId: process.env.GCAL_CALENDAR_ID || 'primary'
+  calendarId: process.env.GCAL_CALENDAR_ID || 'primary',
+  redirectUri: process.env.GCAL_REDIRECT_URI || `http://localhost:${config.port}/api/calendar/callback`
 });
 const syncService = new SyncService({ npsScraper, summarizer, gmail, news });
 const aakash = new AakashSync();
