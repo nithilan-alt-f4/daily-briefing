@@ -1,7 +1,12 @@
 node_modules/
 .env
+.env.example
+render.env
 downloads/
 media/
 *.log
 nps-session.json
 gmail-classify-cache.json
+calendar-tokens.json
+gmail-tokens.json
+local.properties
