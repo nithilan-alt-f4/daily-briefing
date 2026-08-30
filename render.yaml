@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: daily-briefing
+    runtime: node
+    region: oregon
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+    healthCheckPath: /api/health
+    autoDeploy: true

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Debug Console — NPS Briefing</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23171922'/%3E%3Ctext x='16' y='23' font-family='monospace' font-size='18' font-weight='bold' text-anchor='middle' fill='%23ffb84f'%3E?%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="debug.css">
+</head>
+<body>
+  <header>
+    <h1>Debug Console <a class="back" href="/">← back to briefing</a></h1>
+    <div id="health-bar" class="health-bar">loading status...</div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="items">Items</button>
+    <button class="tab" data-tab="actions">Actions</button>
+    <button class="tab" data-tab="logs">Logs</button>
+  </nav>
+
+  <main>
+    <section id="tab-items" class="tab-panel active">
+      <div class="toolbar">
+        <label>Source:
+          <select id="items-filter">
+            <option value="">all</option>
+            <option value="nps">nps</option>
+            <option value="gmail">gmail</option>
+            <option value="news">news</option>
+          </select>
+        </label>
+        <label>Type:
+          <select id="items-type">
+            <option value="">all</option>
+            <option value="assignment">assignment</option>
+            <option value="notification">notification</option>
+            <option value="circular">circular</option>
+            <option value="holiday">holiday</option>
+            <option value="email">email</option>
+            <option value="news">news</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="items-unread"> unread only</label>
+        <button onclick="loadItems()">Load</button>
+        <span id="items-status" class="muted"></span>
+      </div>
+      <div id="items-list"></div>
+    </section>
+
+    <section id="tab-actions" class="tab-panel">
+      <div class="action-grid">
+        <div class="action-card">
+          <h3>Calendar — Add Event</h3>
+          <div class="form-group">
+            <label>Title</label>
+            <input type="text" id="cal-title" placeholder="e.g. Physics">
+          </div>
+          <div class="form-group">
+            <label>Date</label>
+            <input type="date" id="cal-date">
+          </div>
+          <div class="form-check">
+            <input type="checkbox" id="cal-weekly" onchange="document.getElementById('cal-day-group').style.display=this.checked?'block':'none';document.getElementById('cal-date-group').style.display=this.checked?'none':'block'">
+            <span>Repeats every week</span>
+          </div>
+          <div class="form-group" id="cal-day-group" style="display:none">
+            <label>Day</label>
+            <select id="cal-day">
+              <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
+              <option>Thursday</option><option>Friday</option><option>Saturday</option><option>Sunday</option>
+            </select>
+          </div>
+          <div id="cal-date-group">
+            <div class="form-row">
+              <div class="form-group"><label>Start</label><input type="time" id="cal-start"></div>
+              <div class="form-group"><label>End</label><input type="time" id="cal-end"></div>
+            </div>
+          </div>
+          <button onclick="addManualEvent()">Add to Calendar</button>
+          <div id="cal-add-out" class="result"></div>
+        </div>
+        <div class="action-card">
+          <h3>Calendar — Snap Timetable</h3>
+          <p class="muted" style="margin:0 0 8px;font-size:12px">Upload a photo of your timetable to extract events via Gemini.</p>
+          <input type="file" id="cal-snap-input" accept="image/*" onchange="extractFromSnap(this)" style="font-size:12px">
+          <div id="cal-snap-events" style="margin-top:8px"></div>
+          <div id="cal-snap-out" class="result"></div>
+        </div>
+        <div class="action-card">
+          <h3>Calendar — Sync</h3>
+          <button onclick="doSync('/api/sync/all', 'sync-out')">Sync everything</button>
+          <button onclick="doAakashSync()">Sync Aakash now</button>
+          <button onclick="doSync('/api/aakash/sync', 'aakash-out')">Aakash full re-sync</button>
+          <div id="sync-out" class="result"></div>
+          <div id="aakash-out" class="result"></div>
+        </div>
+        <div class="action-card">
+          <h3>NPS session</h3>
+          <button onclick="doSync('/api/nps/relogin', 'nps-out')">Force re-login</button>
+          <button onclick="doSync('/api/nps/debug/assignment', 'nps-out')">Debug: assignment page</button>
+          <button onclick="doSync('/api/nps/debug/notifications', 'nps-out')">Debug: notifications page</button>
+          <button onclick="doSync('/api/nps/debug/circular', 'nps-out')">Debug: circular page</button>
+          <div id="nps-out" class="result"></div>
+        </div>
+        <div class="action-card">
+          <h3>Gmail / Maintenance</h3>
+          <button onclick="window.location='/api/gmail/auth'">Authorize Gmail</button>
+          <button onclick="window.location='/api/calendar/auth'">Authorize Calendar</button>
+          <button onclick="doSync('/api/summarize', 'maint-out')">Summarize pending items</button>
+          <div id="maint-out" class="result"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-logs" class="tab-panel">
+      <div class="toolbar">
+        <button onclick="loadLogs()">Refresh logs</button>
+        <label><input type="checkbox" id="logs-auto"> auto-refresh (2s)</label>
+      </div>
+      <pre id="logs-out" class="logs">(no logs yet)</pre>
+    </section>
+  </main>
+
+  <div id="modal" class="modal hidden" onclick="if(event.target===this)closeModal()">
+    <div class="modal-box">
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <script src="debug.js"></script>
+</body>
+</html>

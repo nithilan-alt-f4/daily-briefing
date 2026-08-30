@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#faf7f2">
+  <title>The Daily Briefing</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23faf7f2'/%3E%3Ctext x='16' y='23' font-family='Georgia' font-size='20' font-weight='bold' text-anchor='middle' fill='%238a2f2b'%3EN%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700;9..144,900&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+
+  <!-- Pull to refresh indicator -->
+  <div class="ptr" id="ptr"><div class="ptr-spinner"></div><span class="ptr-label">Pull to refresh</span></div>
+  <div class="toast" id="toast"></div>
+
+  <div class="paper">
+    <header class="masthead">
+      <div class="masthead-top">
+        <span class="dateline" id="dateline">—</span>
+        <a class="debug-link" href="debug.html">debug</a>
+      </div>
+      <h1 class="masthead-title">The Daily Briefing</h1>
+      <div class="rule-heavy"></div>
+    </header>
+
+    <!-- ============ TODAY ============ -->
+    <div class="view active" id="view-today">
+      <section id="sec-narrative" class="narrative-sec"></section>
+
+      <section>
+        <h2 class="section-head">Classes</h2>
+        <div class="rule-light"></div>
+        <div class="classes-body" id="classes-body"></div>
+        <div id="exam-strip"></div>
+      </section>
+
+      <section>
+        <div class="weather-tap" onclick="switchTab('weather')">
+          <div class="weather-main">
+            <span class="weather-temp" id="w-temp">--°</span>
+            <div class="weather-desc">
+              <span id="w-cond">loading…</span>
+              <span class="weather-sub" id="w-range"></span>
+            </div>
+          </div>
+          <span class="weather-more">Full report →</span>
+        </div>
+        <div class="saturday-line" id="saturday-line"></div>
+      </section>
+
+      <section>
+        <h2 class="section-head">From the School</h2>
+        <div class="rule-light"></div>
+        <div class="story-list" id="list-notifications"></div>
+      </section>
+
+      <!-- ============ SMART NOTE ============ -->
+      <section>
+        <h2 class="section-head">Quick Note</h2>
+        <div class="rule-light"></div>
+        <div class="smart-note">
+          <div class="smart-note-input-row">
+            <input type="text" id="smart-note-input" class="smart-note-input" placeholder="Type a note...">
+            <button class="smart-note-go" id="smart-note-go" onclick="submitSmartNote()">→</button>
+          </div>
+          <div id="smart-note-preview" class="smart-note-preview hidden"></div>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="section-head" id="month-title">This Month</h2>
+        <div class="rule-light"></div>
+        <div class="cal-grid" id="cal-grid"></div>
+        <div class="cal-day-events" id="cal-day-events"></div>
+        <div class="cal-list" id="cal-list"></div>
+      </section>
+    </div>
+
+    <!-- ============ WEATHER ============ -->
+    <div class="view" id="view-weather">
+      <div id="weather-full"><p class="empty-note">Loading forecast…</p></div>
+    </div>
+
+    <!-- ============ SCHOOL ============ -->
+    <div class="view" id="view-school">
+      <div class="acc" id="acc-notifications">
+        <button class="acc-head" onclick="toggleAcc('acc-notifications')">Notifications</button>
+        <div class="acc-body"><div class="acc-inner story-list" id="list-notifications-full"></div></div>
+      </div>
+      <div class="acc" id="acc-assignments">
+        <button class="acc-head" onclick="toggleAcc('acc-assignments')">Assignments</button>
+        <div class="acc-body"><div class="acc-inner story-list" id="list-assignments"></div></div>
+      </div>
+      <div class="acc" id="acc-circulars">
+        <button class="acc-head" onclick="toggleAcc('acc-circulars')">Circulars</button>
+        <div class="acc-body"><div class="acc-inner story-list" id="list-circulars"></div></div>
+      </div>
+    </div>
+
+    <!-- ============ INBOX ============ -->
+    <div class="view" id="view-inbox">
+      <div class="rail-list" id="list-emails"></div>
+    </div>
+
+    <!-- ============ WORLD ============ -->
+    <div class="view" id="view-world">
+      <div class="rail-list" id="list-news"></div>
+    </div>
+
+    <!-- ============ NOTES ============ -->
+    <div class="view" id="view-notes">
+      <div class="notes-input-row">
+        <input type="text" id="notes-input" class="smart-note-input" placeholder="Add a note...">
+        <button class="smart-note-go" onclick="addNote()">+</button>
+      </div>
+      <div id="notes-list"></div>
+    </div>
+
+    <footer class="colophon">
+      <p><span id="footer-status"></span></p>
+    </footer>
+  </div>
+
+  <nav class="tabbar">
+    <button class="tabbar-btn active" data-view="today" onclick="switchTab('today')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l2.9 6.26L21 9.27l-4.5 4.38L17.8 20 12 16.77 6.2 20l1.3-6.35L3 9.27l6.1-1.01z"/></svg>
+      <span>Today</span>
+    </button>
+    <button class="tabbar-btn" data-view="weather" onclick="switchTab('weather')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41"/></svg>
+      <span>Weather</span>
+    </button>
+    <button class="tabbar-btn" data-view="school" onclick="switchTab('school')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 10L12 5 2 10l10 5 10-5z"/><path d="M6 12v5c0 1.7 2.7 3 6 3s6-1.3 6-3v-5"/></svg>
+      <span>School</span>
+    </button>
+    <button class="tabbar-btn" data-view="inbox" onclick="switchTab('inbox')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 6L2 7"/></svg>
+      <span>Inbox</span>
+    </button>
+    <button class="tabbar-btn" data-view="world" onclick="switchTab('world')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+      <span>World</span>
+    </button>
+    <button class="tabbar-btn" data-view="notes" onclick="switchTab('notes')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      <span>Notes</span>
+    </button>
+  </nav>
+
+  <div id="modal" class="modal" onclick="if(event.target===this)closeModal()">
+    <div class="sheet-drag" aria-hidden="true"></div>
+    <div class="modal-box">
+      <button class="modal-close" onclick="closeModal()" aria-label="Close">&times;</button>
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
+
