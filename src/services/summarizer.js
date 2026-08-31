@@ -6,7 +6,7 @@ export class Summarizer {
     this.enabled = !!apiKey;
     if (this.enabled) {
       this.client = new Groq({ apiKey });
-      this.model = 'llama-3.3-70b-versatile';
+      this.model = 'openai/gpt-oss-20b';
     }
   }
 

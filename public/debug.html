@@ -88,25 +88,25 @@
         </div>
         <div class="action-card">
           <h3>Calendar — Sync</h3>
-          <button onclick="doSync('/api/sync/all', 'sync-out')">Sync everything</button>
+          <button onclick="doSync('/api/sync/all', '#sync-out')">Sync everything</button>
           <button onclick="doAakashSync()">Sync Aakash now</button>
-          <button onclick="doSync('/api/aakash/sync', 'aakash-out')">Aakash full re-sync</button>
+          <button onclick="doSync('/api/aakash/sync', '#aakash-out')">Aakash full re-sync</button>
           <div id="sync-out" class="result"></div>
           <div id="aakash-out" class="result"></div>
         </div>
         <div class="action-card">
           <h3>NPS session</h3>
-          <button onclick="doSync('/api/nps/relogin', 'nps-out')">Force re-login</button>
-          <button onclick="doSync('/api/nps/debug/assignment', 'nps-out')">Debug: assignment page</button>
-          <button onclick="doSync('/api/nps/debug/notifications', 'nps-out')">Debug: notifications page</button>
-          <button onclick="doSync('/api/nps/debug/circular', 'nps-out')">Debug: circular page</button>
+          <button onclick="doSync('/api/nps/relogin', '#nps-out')">Force re-login</button>
+          <button onclick="doSync('/api/nps/debug/assignment', '#nps-out')">Debug: assignment page</button>
+          <button onclick="doSync('/api/nps/debug/notifications', '#nps-out')">Debug: notifications page</button>
+          <button onclick="doSync('/api/nps/debug/circular', '#nps-out')">Debug: circular page</button>
           <div id="nps-out" class="result"></div>
         </div>
         <div class="action-card">
           <h3>Gmail / Maintenance</h3>
           <button onclick="window.location='/api/gmail/auth'">Authorize Gmail</button>
           <button onclick="window.location='/api/calendar/auth'">Authorize Calendar</button>
-          <button onclick="doSync('/api/summarize', 'maint-out')">Summarize pending items</button>
+          <button onclick="doSync('/api/summarize', '#maint-out')">Summarize pending items</button>
           <div id="maint-out" class="result"></div>
         </div>
       </div>

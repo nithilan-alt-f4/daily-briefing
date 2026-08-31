@@ -207,26 +207,20 @@ loadItems();
 // ---- Aakash WhatsApp sync ----
 async function doAakashSync() {
   const el = $('#aakash-out');
-  const status = $('#aakash-status');
   el.innerHTML = '<div class="ok-line">connecting WhatsApp and syncing…</div>';
-  status.textContent = 'running';
   try {
     const result = await api('/api/aakash/sync', { method: 'POST' });
     const pretty = JSON.stringify(result, null, 2);
     if (result.needsReauth) {
       el.innerHTML = `<div class="err-box">Session expired. Run START.bat in the aakash-cal-bot folder, scan the QR code, then try again.</div><pre>${escapeHtml(pretty)}</pre>`;
-      status.textContent = 'needs re-auth';
     } else if (result.success) {
       el.innerHTML = `<div class="ok-line">sync complete</div><pre>${escapeHtml(pretty)}</pre>`;
-      status.textContent = 'done';
     } else {
       el.innerHTML = `<pre>${escapeHtml(pretty)}</pre>`;
-      status.textContent = result.running ? 'still running' : 'failed';
     }
     loadHealth();
   } catch (err) {
     el.innerHTML = `<div class="err-box">${escapeHtml(err.message)}</div>`;
-    status.textContent = 'error';
   }
 }
 window.doAakashSync = doAakashSync;
