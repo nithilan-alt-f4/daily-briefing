@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import { join } from 'path';
+import { existsSync } from 'fs';
 
 const AAKASH_BOT_DIR = process.env.AAKASH_BOT_DIR || 'C:/Users/Nithilan/aakash-cal-bot';
 
@@ -21,6 +22,15 @@ export class AakashSync {
       if (this.running) {
         this.log(`[Aakash] Already running; skipping (${cause})`);
         return resolve({ skipped: true, running: true });
+      }
+
+      // Check if the bot directory exists (won't exist on Render)
+      if (!AAKASH_BOT_DIR || !existsSync(AAKASH_BOT_DIR)) {
+        this.lastSync = new Date().toISOString();
+        this.lastResult = 'skipped';
+        this.lastError = 'Aakash bot directory not available (cannot run on this server)';
+        this.log(`[Aakash] Bot dir not found at "${AAKASH_BOT_DIR}" — skipping sync (${cause}). Aakash sync only works locally.`);
+        return resolve({ success: false, skipped: true, reason: 'bot-dir-missing' });
       }
 
       this.running = true;

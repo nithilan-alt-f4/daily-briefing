@@ -77,26 +77,29 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
         Item.find({ type: 'holiday' }).lean()
       ]);
 
-      const schoolEvents = events.filter(e => /school/i.test(e.calendarName || ''));
-      // IST wall-clock date: +05:30 offset applied so early-morning IST
-      // doesn't roll to previous UTC date.
+      // Use ALL events from ALL calendars (not just /school/) so Aakash coaching, primary, etc. all show
       const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
       const todayKey = istNow.toISOString().slice(0, 10);
       const tomorrowKey = new Date(istNow.getTime() + 86400000).toISOString().slice(0, 10);
+      console.log(`[Schedule] Calendars fetched: ${[...new Set(events.map(e => e.calendarName))].join(', ')} (${events.length} events total)`);
 
-      // Today's classes: whatever is on the School calendar today that isn't an exam
-      const classes = schoolEvents
+      // Today's classes: whatever is on any calendar today that isn't an exam, birthday, or holiday
+      const classes = events
         .filter(e => (e.start || '').slice(0, 10) === todayKey)
         .filter(e => !/exam|test|akats|quiz/i.test(e.title))
+        .filter(e => !e.isBirthday)
+        .filter(e => !/holiday/i.test(e.calendarName || ''))
         .map(e => cleanTitle(e.title));
 
       // Tomorrow's classes (used when today has none and it's after 5 PM)
-      const tomorrowClasses = schoolEvents
+      const tomorrowClasses = events
         .filter(e => (e.start || '').slice(0, 10) === tomorrowKey)
         .filter(e => !/exam|test|akats|quiz/i.test(e.title))
+        .filter(e => !e.isBirthday)
+        .filter(e => !/holiday/i.test(e.calendarName || ''))
         .map(e => cleanTitle(e.title));
 
-      const exams = schoolEvents.filter(e => /exam|test|akats|quiz/i.test(e.title) && new Date(e.start) >= now)
+      const exams = events.filter(e => /exam|test|akats|quiz/i.test(e.title) && new Date(e.start) >= now)
         .map(e => ({ title: e.title, date: e.start }))
         .sort((a, b) => new Date(a.date) - new Date(b.date));
 
@@ -221,19 +224,26 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
         '&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_probability_max,wind_speed_10m_max' +
         '&timezone=auto&forecast_days=7';
 
-      // Retry up to 2 times on failure
+      // Retry up to 3 times on failure with longer timeout (Render cold starts are slow)
       let data = null;
+      let lastErr = null;
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
+          const r = await fetch(url, { signal: AbortSignal.timeout(25000) });
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const json = await r.json();
           if (json.current) { data = json; break; }
           throw new Error('bad response from open-meteo');
         } catch (err) {
-          if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 1000));
-          else throw err;
+          lastErr = err;
+          console.error(`[Weather] Attempt ${attempt} failed:`, err.message);
+          if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 2000));
         }
+      }
+
+      if (!data) {
+        if (weatherCache.data) return res.json(weatherCache.data);
+        throw lastErr || new Error('all weather attempts failed');
       }
 
       const WMO = code => ({
@@ -315,6 +325,16 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
   });
 
   // ---- Calendar ----
+  router.get('/calendars', async (req, res) => {
+    try {
+      if (!calendar.isConnected()) return res.json({ connected: false, calendars: [] });
+      const cals = await calendar._listCalendars();
+      res.json({ connected: true, calendars: cals.map(c => ({ id: c.id, name: c.summary, primary: c.primary })) });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   router.get('/calendar/events', async (req, res) => {
     try {
       const days = parseInt(req.query.days || '14', 10);
