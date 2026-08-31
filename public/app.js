@@ -27,6 +27,53 @@ function dayLabel(dateStr) {
   return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
+// ---------- Native + local cache ----------
+// SyncWorker writes JSON files to app's internal files/cache/.
+// We try to read them via Capacitor Filesystem; fall back to localStorage.
+async function readNativeCache(name) {
+  // Try Capacitor Filesystem (native cache written by SyncWorker)
+  try {
+    if (window.Capacitor?.Plugins?.Filesystem) {
+      const result = await window.Capacitor.Plugins.Filesystem.readFile({
+        path: `cache/${name}`,
+        directory: 'DATA'
+      });
+      const raw = typeof result.data === 'string' ? result.data : (result.data || result);
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (parsed?.data) return parsed; // { data: ..., savedAt: ... }
+    }
+  } catch {}
+  // Fallback to localStorage cache
+  try {
+    const raw = localStorage.getItem(`__cache_${name}`);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
+
+function writeLocalCache(name, data) {
+  try {
+    localStorage.setItem(`__cache_${name}`, JSON.stringify({
+      data,
+      savedAt: Date.now()
+    }));
+  } catch {}
+}
+
+function cacheAgeText(savedAt) {
+  if (!savedAt) return '';
+  const mins = Math.round((Date.now() - savedAt) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  return `${hrs}h ago`;
+}
+
+function updateCacheAge(text) {
+  const el = $('#cache-age');
+  if (el) el.textContent = text ? `updated ${text}` : '';
+}
+
 // ---------- Rich text: **bold** + [[News:/Mail:]] jump links ----------
 const itemRegistry = {
   news: [], emails: [],
@@ -794,24 +841,83 @@ window.deleteNote = deleteNote;
 // ---------- Load ----------
 async function loadAll() {
   setDateline();
+  updateCacheAge('');
 
-  try {
-    const sched = await api('/api/schedule/today');
-    renderSchedule(sched);
-  } catch {
-    $('#classes-body').innerHTML = '<p class="class-empty">Schedule unavailable.</p>';
+  // --- Phase 1: Read native cache + render instantly ---
+  const [schedCache, briefCache, calCache, wxCache] = await Promise.all([
+    readNativeCache('schedule'),
+    readNativeCache('briefing'),
+    readNativeCache('calendar'),
+    readNativeCache('weather')
+  ]);
+
+  if (schedCache?.data) renderSchedule(schedCache.data);
+  if (briefCache?.data) renderBriefing(briefCache.data);
+  if (calCache?.data?.events) {
+    monthEvents = calCache.data.events;
+    calListExpanded = false;
+    renderCalendar();
+    // Auto-select today
+    const now = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    const todayKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
+    selectDay(todayKey);
+  }
+  if (wxCache?.data) {
+    const w = wxCache.data;
+    if (!w.error) {
+      $('#w-temp').textContent = `${w.current.temp}°`;
+      $('#w-cond').textContent = w.current.condition;
+      $('#w-range').textContent = `H ${w.today.max}° · L ${w.today.min}° · ${w.today.rainChance}% rain`;
+    }
   }
 
-  try {
-    const b = await api('/api/briefing');
-    renderBriefing(b);
-  } catch (err) {
-    $('#list-notifications').innerHTML = `<p class="empty-note" style="color:var(--accent)">Edition unavailable: ${escapeHtml(err.message)}</p>`;
+  // Show cache age from the freshest cached item
+  const ages = [schedCache, briefCache, calCache, wxCache]
+    .filter(c => c?.savedAt).map(c => c.savedAt);
+  if (ages.length) {
+    updateCacheAge(cacheAgeText(Math.max(...ages)));
+  } else {
+    updateCacheAge('no cache');
   }
 
-  loadMonth();
-  loadWeatherStrip();
+  // --- Phase 2: Background fetch from server, re-render in place ---
+  const [schedResult, briefResult, calResult, wxResult] = await Promise.allSettled([
+    api('/api/schedule/today'),
+    api('/api/briefing'),
+    api('/api/calendar/month'),
+    api('/api/weather')
+  ]);
 
+  if (schedResult.status === 'fulfilled') {
+    renderSchedule(schedResult.value);
+    writeLocalCache('schedule', schedResult.value);
+  }
+  if (briefResult.status === 'fulfilled') {
+    renderBriefing(briefResult.value);
+    writeLocalCache('briefing', briefResult.value);
+  }
+  if (calResult.status === 'fulfilled') {
+    monthEvents = calResult.value.events || [];
+    calListExpanded = false;
+    renderCalendar();
+    writeLocalCache('calendar', calResult.value);
+    const now = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    const todayKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
+    selectDay(todayKey);
+  }
+  if (wxResult.status === 'fulfilled') {
+    const w = wxResult.value;
+    if (!w.error) {
+      $('#w-temp').textContent = `${w.current.temp}°`;
+      $('#w-cond').textContent = w.current.condition;
+      $('#w-range').textContent = `H ${w.today.max}° · L ${w.today.min}° · ${w.today.rainChance}% rain`;
+    }
+    writeLocalCache('weather', wxResult.value);
+  }
+
+  updateCacheAge('just now');
+
+  // Health check (fire-and-forget)
   try {
     const h = await api('/api/health');
     $('#footer-status').textContent = `db ${h.db} · nps ${h.nps?.loggedIn ? 'ok' : 'down'} · gmail ${h.gmail} · calendar ${h.calendar}`;

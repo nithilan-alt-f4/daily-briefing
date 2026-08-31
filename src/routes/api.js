@@ -11,6 +11,27 @@ const router = Router();
 
 const weatherCache = { data: null, at: 0 };
 
+// Shared 5-minute cache for Google Calendar reads (schedule/today + calendar/month)
+const CAL_CACHE_TTL = 5 * 60 * 1000;
+const calendarCache = { events: null, at: 0, start: null, end: null };
+
+async function getCachedCalendarEvents(calendar, start, end, maxPerCal) {
+  const now = Date.now();
+  // Reuse cache if fresh enough AND the cached range covers the request
+  if (calendarCache.events && (now - calendarCache.at) < CAL_CACHE_TTL
+      && calendarCache.start <= start && calendarCache.end >= end) {
+    return calendarCache.events;
+  }
+  // Fetch the wider of: requested range or today→end of next month
+  const wideEnd = new Date(Math.max(end.getTime(), new Date(now.getFullYear(), now.getMonth() + 2, 0).getTime()));
+  const events = await calendar.fetchEventsInRange(start, wideEnd, maxPerCal);
+  calendarCache.events = events;
+  calendarCache.at = now;
+  calendarCache.start = start;
+  calendarCache.end = wideEnd;
+  return events;
+}
+
 // Strip suffixes like "Lecture", "Lec", "Lect" from class names
 function cleanTitle(t) {
   return (t || '').replace(/\s*[-–]?\s*(Lecture|Lec|Lect|Class)\s*$/i, '').trim();
@@ -51,7 +72,7 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
 
       const [events, holidays] = await Promise.all([
         calendar.isConnected()
-          ? calendar.fetchEventsInRange(now, endOfTomorrow, 80)
+          ? getCachedCalendarEvents(calendar, now, endOfTomorrow, 80)
           : Promise.resolve([]),
         Item.find({ type: 'holiday' }).lean()
       ]);
@@ -126,7 +147,7 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
 
       const [events, holidays] = await Promise.all([
         calendar.isConnected()
-          ? calendar.fetchEventsInRange(now, rangeEnd, 100)
+          ? getCachedCalendarEvents(calendar, now, rangeEnd, 100)
           : Promise.resolve([]),
         Item.find({
           type: 'holiday',

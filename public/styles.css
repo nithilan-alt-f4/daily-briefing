@@ -66,10 +66,18 @@ a:hover { text-decoration-color: var(--accent); }
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  gap: 0.5em;
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--muted);
+}
+.cache-age {
+  font-size: 0.6rem;
+  color: var(--muted);
+  opacity: 0.6;
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
 }
 .debug-link {
   color: var(--muted);
