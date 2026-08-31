@@ -7,6 +7,4 @@ media/
 *.log
 nps-session.json
 gmail-classify-cache.json
-calendar-tokens.json
-gmail-tokens.json
 local.properties
