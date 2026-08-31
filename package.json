@@ -6,7 +6,6 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "postinstall": "npx playwright install chromium --with-deps",
     "dev": "node --watch server.js",
     "start-bg": "powershell -ExecutionPolicy Bypass -File start-bg.ps1",
     "stop": "powershell -ExecutionPolicy Bypass -File stop.ps1"
