@@ -1,11 +1,11 @@
 services:
   - type: web
     name: daily-briefing
-    runtime: node
+    runtime: image
+    image:
+      dockerfilePath: Dockerfile
     region: oregon
     plan: free
-    buildCommand: npm install && npx playwright install chromium
-    startCommand: node server.js
     envVars:
       - key: NODE_ENV
         value: production

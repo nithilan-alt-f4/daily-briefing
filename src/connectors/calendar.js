@@ -105,7 +105,31 @@ export class CalendarConnector {
           console.error(`[Calendar] Failed to read "${calInfo.summary}":`, err.message);
         }
       }
-      return all;
+
+      // Dedup: prefer school calendar over primary calendar for same title+time
+      const seen = new Map();
+      const deduped = [];
+      for (const e of all) {
+        const key = `${(e.title || '').toLowerCase().trim()}|${e.start || ''}`;
+        const existing = seen.get(key);
+        if (!existing) {
+          seen.set(key, e);
+          deduped.push(e);
+        } else {
+          // Prefer school calendar over primary
+          const isSchool = /school/i.test(e.calendarName || '');
+          const existingIsSchool = /school/i.test(existing.calendarName || '');
+          if (isSchool && !existingIsSchool) {
+            // Replace primary version with school version
+            const idx = deduped.indexOf(existing);
+            if (idx >= 0) deduped[idx] = e;
+            seen.set(key, e);
+          }
+          // Otherwise skip duplicate
+        }
+      }
+
+      return deduped;
     } catch (err) {
       console.error('[Calendar] fetchEventsInRange failed:', err.message);
       return [];
@@ -207,6 +231,112 @@ export class CalendarConnector {
       this.lastError = err.message;
       console.error('[Calendar] Fetch failed:', err.message);
       return [];
+    }
+  }
+
+  // Auto-accept pending event invitations (online class invites)
+  // and remove duplicates: same event on both primary + school calendar → keep school one
+  async acceptPendingInvitations() {
+    try {
+      const calendar = google.calendar({ version: 'v3', auth: this.oauth2Client });
+      const calendars = await this._listCalendars();
+      let accepted = 0;
+
+      for (const calInfo of calendars) {
+        try {
+          const now = new Date();
+          const future = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+          const res = await calendar.events.list({
+            calendarId: calInfo.id,
+            timeMin: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+            timeMax: future.toISOString(),
+            maxResults: 100,
+            singleEvents: true,
+            orderBy: 'startTime'
+          });
+
+          for (const e of (res.data.items || [])) {
+            // Find this user's attendee entry
+            const attendees = e.attendees || [];
+            const self = attendees.find(a => a.self);
+            if (self && self.responseStatus === 'needsAction') {
+              try {
+                self.responseStatus = 'accepted';
+                await calendar.events.patch({
+                  calendarId: calInfo.id,
+                  eventId: e.id,
+                  requestBody: { attendees }
+                });
+                accepted++;
+                console.log(`[Calendar] Auto-accepted: "${e.summary}" on ${calInfo.summary}`);
+              } catch (err) {
+                console.error(`[Calendar] Failed to accept "${e.summary}":`, err.message);
+              }
+            }
+          }
+        } catch (err) {
+          console.error(`[Calendar] Failed scanning "${calInfo.summary}" for invites:`, err.message);
+        }
+      }
+
+      // Dedup: remove primary calendar events that already exist on a school calendar
+      // (same title + same start time → the school calendar version is the "real" one)
+      let deduped = 0;
+      try {
+        const schoolCal = calendars.find(c => /school/i.test(c.summary || ''));
+        const primaryCal = calendars.find(c => /primary/i.test(c.summary || ''));
+        if (schoolCal && primaryCal) {
+          const [schoolEvents, primaryEvents] = await Promise.all([
+            calendar.events.list({
+              calendarId: schoolCal.id,
+              timeMin: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+              timeMax: future.toISOString(),
+              maxResults: 200,
+              singleEvents: true
+            }),
+            calendar.events.list({
+              calendarId: primaryCal.id,
+              timeMin: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+              timeMax: future.toISOString(),
+              maxResults: 200,
+              singleEvents: true
+            })
+          ]);
+
+          // Build set of school event signatures
+          const schoolSigs = new Set();
+          for (const e of (schoolEvents.data.items || [])) {
+            const start = e.start?.dateTime || e.start?.date || '';
+            schoolSigs.add(`${(e.summary || '').toLowerCase().trim()}|${start}`);
+          }
+
+          // Delete primary calendar events that match a school event
+          for (const e of (primaryEvents.data.items || [])) {
+            const start = e.start?.dateTime || e.start?.date || '';
+            const sig = `${(e.summary || '').toLowerCase().trim()}|${start}`;
+            if (schoolSigs.has(sig)) {
+              try {
+                await calendar.events.delete({
+                  calendarId: primaryCal.id,
+                  eventId: e.id
+                });
+                deduped++;
+                console.log(`[Calendar] Removed duplicate: "${e.summary}" from primary`);
+              } catch (err) {
+                console.error(`[Calendar] Failed to delete duplicate "${e.summary}":`, err.message);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[Calendar] Dedup failed:', err.message);
+      }
+
+      console.log(`[Calendar] Auto-accepted ${accepted}, deduped ${deduped}`);
+      return { accepted, deduped };
+    } catch (err) {
+      console.error('[Calendar] acceptPendingInvitations failed:', err.message);
+      return { accepted: 0, deduped: 0, error: err.message };
     }
   }
 }

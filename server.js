@@ -53,7 +53,7 @@ const calendar = new CalendarConnector({
   calendarId: process.env.GCAL_CALENDAR_ID || 'primary',
   redirectUri: process.env.GCAL_REDIRECT_URI || `http://localhost:${config.port}/api/calendar/callback`
 });
-const syncService = new SyncService({ npsScraper, summarizer, gmail, news });
+const syncService = new SyncService({ npsScraper, summarizer, gmail, news, calendar });
 const aakash = new AakashSync();
 
 app.use('/api', createRoutes({ npsScraper, syncService, summarizer, gmail, calendar, aakash }));

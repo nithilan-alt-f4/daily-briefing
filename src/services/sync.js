@@ -2,11 +2,12 @@ import { Item } from '../models/Item.js';
 import { generateAndCacheNarrative } from './briefing.js';
 
 export class SyncService {
-  constructor({ npsScraper, summarizer, gmail, news }) {
+  constructor({ npsScraper, summarizer, gmail, news, calendar }) {
     this.nps = npsScraper;
     this.summarizer = summarizer;
     this.gmail = gmail;
     this.news = news;
+    this.calendar = calendar;
     this.running = false;
     this.lastSync = null;
     this.lastResult = null;
@@ -216,6 +217,17 @@ export class SyncService {
     const gmail = await this.syncGmail();
     const news = await this.syncNews();
 
+    // Auto-accept pending calendar invitations + remove duplicates
+    let calResult = { accepted: 0, deduped: 0 };
+    if (this.calendar?.isConnected()) {
+      try {
+        calResult = await this.calendar.acceptPendingInvitations();
+        console.log(`[Sync] Calendar: accepted ${calResult.accepted}, deduped ${calResult.deduped}`);
+      } catch (err) {
+        console.error('[Sync] Calendar auto-accept failed:', err.message);
+      }
+    }
+
     // Refresh cached narrative (with weather)
     try {
       const weather = await this._fetchWeather();
@@ -226,7 +238,7 @@ export class SyncService {
     }
 
     this.lastSync = new Date();
-    this.lastResult = { nps, gmail, news };
+    this.lastResult = { nps, gmail, news, calendar: calResult };
     return this.lastResult;
   }
 
