@@ -6,20 +6,32 @@ export class Summarizer {
     this.enabled = !!apiKey;
     if (this.enabled) {
       this.client = new Groq({ apiKey });
-      this.model = 'openai/gpt-oss-120b';
+      this.model = 'llama-3.3-70b-versatile';
     }
   }
 
-  async _chat(prompt, maxTokens = 1500) {
-    const response = await this.client.chat.completions.create({
-      messages: [{ role: 'user', content: prompt }],
-      model: this.model,
-      max_tokens: maxTokens,
-      temperature: 0.3
-    });
-    let content = response.choices[0]?.message?.content || '';
-    content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-    return content;
+  async _chat(prompt, maxTokens = 1500, retries = 3) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const response = await this.client.chat.completions.create({
+          messages: [{ role: 'user', content: prompt }],
+          model: this.model,
+          max_tokens: maxTokens,
+          temperature: 0.3
+        });
+        let content = response.choices[0]?.message?.content || '';
+        content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+        return content;
+      } catch (err) {
+        if (err.status === 429 && attempt < retries) {
+          const wait = attempt * 2000;
+          console.log(`[Summarizer] Rate limited, retrying in ${wait}ms (attempt ${attempt}/${retries})`);
+          await new Promise(r => setTimeout(r, wait));
+          continue;
+        }
+        throw err;
+      }
+    }
   }
 
   async summarizeItem(item) {

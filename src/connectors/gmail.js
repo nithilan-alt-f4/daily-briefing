@@ -149,4 +149,84 @@ export class GmailConnector {
     saveCache();
     return verdict;
   }
+
+  // Detect calendar invitation emails and auto-accept them via Calendar API
+  async autoAcceptCalendarInvites(calendar) {
+    if (!this.isConnected() || !calendar?.isConnected()) return { accepted: 0 };
+    try {
+      const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
+
+      // Search for emails that contain calendar invitations (ICS attachment or calendar header)
+      const res = await gmail.users.messages.list({
+        userId: 'me',
+        maxResults: 20,
+        q: 'subject:(invitation OR invited OR "calendar event") newer_than:7d is:unread'
+      });
+
+      const messages = res.data.messages || [];
+      let accepted = 0;
+
+      for (const msg of messages) {
+        try {
+          const full = await gmail.users.messages.get({
+            userId: 'me',
+            id: msg.id,
+            format: 'full'
+          });
+
+          const headers = full.data.payload.headers;
+          const subject = headers.find(h => h.name === 'Subject')?.value || '';
+          const from = headers.find(h => h.name === 'From')?.value || '';
+
+          // Only process actual calendar invites (not regular emails about calendars)
+          const isInvite = /invitation|invited|would like you to attend|RSVP|respond/i.test(subject)
+            || full.data.payload.mimeType === 'text/calendar'
+            || (full.data.payload.parts || []).some(p => p.mimeType === 'text/calendar');
+
+          if (!isInvite) continue;
+
+          // Extract the event title from subject (strip "Invite: " prefix etc.)
+          const eventTitle = subject.replace(/^(invite|invitation|fwd?:\s*)/i, '').replace(/\s*[-–]\s*.*$/i, '').trim();
+
+          // Try to find and accept this event via Calendar API
+          try {
+            const cal = google.calendar({ version: 'v3', auth: calendar.oauth2Client });
+            const now = new Date();
+            const events = await cal.events.list({
+              calendarId: calendar.calendarId || 'primary',
+              q: eventTitle,
+              timeMin: new Date(now.getTime() - 7 * 86400000).toISOString(),
+              timeMax: new Date(now.getTime() + 30 * 86400000).toISOString(),
+              singleEvents: true,
+              maxResults: 5
+            });
+
+            for (const event of (events.data.items || [])) {
+              const self = (event.attendees || []).find(a => a.self);
+              if (self && self.responseStatus === 'needsAction') {
+                self.responseStatus = 'accepted';
+                await cal.events.patch({
+                  calendarId: calendar.calendarId || 'primary',
+                  eventId: event.id,
+                  requestBody: { attendees: event.attendees }
+                });
+                accepted++;
+                console.log(`[Gmail] Auto-accepted calendar invite: "${event.summary}" from ${from}`);
+              }
+            }
+          } catch (err) {
+            console.error(`[Gmail] Failed to accept invite for "${eventTitle}":`, err.message);
+          }
+        } catch (err) {
+          console.error(`[Gmail] Failed processing message ${msg.id}:`, err.message);
+        }
+      }
+
+      console.log(`[Gmail] Auto-accepted ${accepted} calendar invites`);
+      return { accepted };
+    } catch (err) {
+      console.error('[Gmail] autoAcceptCalendarInvites failed:', err.message);
+      return { accepted: 0, error: err.message };
+    }
+  }
 }

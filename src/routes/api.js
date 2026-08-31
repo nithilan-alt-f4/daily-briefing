@@ -221,9 +221,20 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
         '&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_probability_max,wind_speed_10m_max' +
         '&timezone=auto&forecast_days=7';
 
-      const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
-      const data = await r.json();
-      if (!data.current) throw new Error('bad response from open-meteo');
+      // Retry up to 2 times on failure
+      let data = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const json = await r.json();
+          if (json.current) { data = json; break; }
+          throw new Error('bad response from open-meteo');
+        } catch (err) {
+          if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 1000));
+          else throw err;
+        }
+      }
 
       const WMO = code => ({
         0: 'Clear sky', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',

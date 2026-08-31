@@ -228,6 +228,17 @@ export class SyncService {
       }
     }
 
+    // Auto-accept calendar invites found in Gmail
+    let gmailCalResult = { accepted: 0 };
+    if (this.gmail?.isConnected() && this.calendar?.isConnected()) {
+      try {
+        gmailCalResult = await this.gmail.autoAcceptCalendarInvites(this.calendar);
+        console.log(`[Sync] Gmail calendar invites accepted: ${gmailCalResult.accepted}`);
+      } catch (err) {
+        console.error('[Sync] Gmail calendar invite accept failed:', err.message);
+      }
+    }
+
     // Refresh cached narrative (with weather)
     try {
       const weather = await this._fetchWeather();
@@ -238,7 +249,7 @@ export class SyncService {
     }
 
     this.lastSync = new Date();
-    this.lastResult = { nps, gmail, news, calendar: calResult };
+    this.lastResult = { nps, gmail, news, calendar: calResult, gmailCalInvites: gmailCalResult };
     return this.lastResult;
   }
 
