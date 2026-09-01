@@ -23,7 +23,8 @@ async function getCachedCalendarEvents(calendar, start, end, maxPerCal) {
     return calendarCache.events;
   }
   // Fetch the wider of: requested range or today→end of next month
-  const wideEnd = new Date(Math.max(end.getTime(), new Date(now.getFullYear(), now.getMonth() + 2, 0).getTime()));
+  const nowDate = new Date(now);
+  const wideEnd = new Date(Math.max(end.getTime(), new Date(nowDate.getFullYear(), nowDate.getMonth() + 2, 0).getTime()));
   const events = await calendar.fetchEventsInRange(start, wideEnd, maxPerCal);
   calendarCache.events = events;
   calendarCache.at = now;
