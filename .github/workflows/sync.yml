@@ -1,0 +1,48 @@
+name: Sync Briefing Data
+
+on:
+  schedule:
+    # Every 6 hours: 6am, 12pm, 6pm, 12am IST (0:30, 6:30, 12:30, 18:30 UTC)
+    - cron: '30 0,6,12,18 * * *'
+  workflow_dispatch: # Manual trigger from GitHub UI
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Run sync
+        run: node sync-worker.js
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          NPS_PORTAL_URL: ${{ secrets.NPS_PORTAL_URL }}
+          NPS_USERNAME: ${{ secrets.NPS_USERNAME }}
+          NPS_PASSWORD: ${{ secrets.NPS_PASSWORD }}
+          GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+          GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+          GMAIL_REDIRECT_URI: ${{ secrets.GMAIL_REDIRECT_URI }}
+          GCAL_CLIENT_ID: ${{ secrets.GCAL_CLIENT_ID }}
+          GCAL_CLIENT_SECRET: ${{ secrets.GCAL_CLIENT_SECRET }}
+          GCAL_CALENDAR_ID: ${{ secrets.GCAL_CALENDAR_ID }}
+          GCAL_REDIRECT_URI: ${{ secrets.GCAL_REDIRECT_URI }}
+          PLAYWRIGHT_BROWSERS_PATH: 0
+        timeout-minutes: 10
