@@ -133,6 +133,7 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
         }
       });
     } catch (err) {
+      console.error('[Schedule/today] Error:', err.message);
       res.status(500).json({ error: err.message });
     }
   });
@@ -202,6 +203,7 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
         events: deduped
       });
     } catch (err) {
+      console.error('[Calendar/month] Error:', err.message);
       res.status(500).json({ error: err.message });
     }
   });
@@ -544,8 +546,9 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
       }));
       await page.close();
       res.json({ url: page.url(), counts, bodyText: bodyText.substring(0, 5000) });
-    } catch (err) {
-      res.status(500).json({ error: err.message, hint: 'Try POST /api/nps/relogin first' });
+} catch (err) {
+      console.error('[Schedule/today] Error:', err.message, err.stack);
+      res.status(500).json({ error: err.message });
     }
   });
 
