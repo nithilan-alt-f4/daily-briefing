@@ -2,6 +2,7 @@ import { chromium } from 'playwright';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
 import { config } from '../config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -21,7 +22,24 @@ export class NPSScraper {
 
   async _launch() {
     if (!this.browser) {
-      this.browser = await chromium.launch({ headless: true });
+      try {
+        this.browser = await chromium.launch({ headless: true });
+      } catch (err) {
+        // Browser not installed (Render build env cache doesn't persist). Try installing now.
+        if (/Executable doesn't exist/.test(err.message || '')) {
+          console.error('[NPS] Browser missing — installing chromium (takes ~30s)...');
+          try {
+            execSync('npx playwright install chromium', { stdio: 'pipe', timeout: 180000 });
+            this.browser = await chromium.launch({ headless: true });
+          } catch (err2) {
+            this.lastError = `browser install failed: ${err2.message}`;
+            console.error('[NPS] Browser auto-install failed:', err2.message);
+            throw err;
+          }
+        } else {
+          throw err;
+        }
+      }
       const opts = {};
       if (existsSync(SESSION_PATH)) {
         opts.storageState = SESSION_PATH;

@@ -440,8 +440,8 @@ function renderCalendar() {
   }
   $('#cal-grid').innerHTML = html;
 
-  // Event list below — only holidays, birthdays, exams (no classes). Scrollable, 3 visible.
-  const calKinds = new Set(['holiday', 'birthday', 'exam']);
+  // Event list below — holidays, birthdays, exams, AND personal events (Aakash/coaching etc). No classes.
+  const calKinds = new Set(['holiday', 'birthday', 'exam', 'personal']);
   const listEvents = monthEvents.filter(e => calKinds.has(e.kind));
   const total = listEvents.length;
   const visible = calListExpanded ? listEvents : listEvents.slice(0, CAL_LIST_INITIAL);

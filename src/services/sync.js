@@ -255,6 +255,14 @@ export class SyncService {
 
   async _fetchWeather() {
     try {
+      // Reuse whatever the /api/weather cache has instead of hammering Open-Meteo again
+      const cached = global.__weatherCacheData;
+      if (cached && Date.now() - (global.__weatherCacheAt || 0) < 60 * 60 * 1000) {
+        return {
+          current: { temp: cached.current.temp, condition: cached.current.condition },
+          today: { rainChance: cached.today.rainChance }
+        };
+      }
       const lat = 13.1007, lon = 77.5963;
       const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon +
         '&current=temperature_2m,weather_code&daily=precipitation_probability_max&timezone=auto&forecast_days=1';

@@ -212,7 +212,8 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
   router.get('/weather', async (req, res) => {
     try {
       const now = Date.now();
-      if (weatherCache.data && now - weatherCache.at < 20 * 60 * 1000) {
+      // Cache weather for 60 min to avoid hammering Open-Meteo (it rate-limits hard with 429)
+      if (weatherCache.data && now - weatherCache.at < 60 * 60 * 1000) {
         return res.json(weatherCache.data);
       }
 
@@ -224,12 +225,13 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
         '&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_probability_max,wind_speed_10m_max' +
         '&timezone=auto&forecast_days=7';
 
-      // Retry up to 3 times on failure with longer timeout (Render cold starts are slow)
+      // Retry up to 4 times with long exponential backoff for 429 (rate limit)
       let data = null;
       let lastErr = null;
-      for (let attempt = 1; attempt <= 3; attempt++) {
+      for (let attempt = 1; attempt <= 4; attempt++) {
         try {
           const r = await fetch(url, { signal: AbortSignal.timeout(25000) });
+          if (r.status === 429) throw new Object.assign(new Error('HTTP 429 (rate limited)'), { rateLimit: true });
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const json = await r.json();
           if (json.current) { data = json; break; }
@@ -237,7 +239,9 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
         } catch (err) {
           lastErr = err;
           console.error(`[Weather] Attempt ${attempt} failed:`, err.message);
-          if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 2000));
+          // Long backoff for rate limits (10s, 20s, 40s); 3s for transient errors
+          const wait = err.rateLimit ? 10 * 2 ** (attempt - 1) * 1000 : 3000;
+          if (attempt < 4) await new Promise(r => setTimeout(r, wait));
         }
       }
 
@@ -317,6 +321,9 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
 
       weatherCache.data = result;
       weatherCache.at = now;
+      // Also expose for SyncService._fetchWeather() so it reuses the same data (avoids 429s)
+      global.__weatherCacheData = result;
+      global.__weatherCacheAt = now;
       res.json(result);
     } catch (err) {
       if (weatherCache.data) return res.json(weatherCache.data);
