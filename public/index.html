@@ -67,6 +67,10 @@
         <div class="smart-note">
           <div class="smart-note-input-row">
             <input type="text" id="smart-note-input" class="smart-note-input" placeholder="Type a note...">
+            <label class="smart-note-camera" title="Take a photo of a note or timetable">
+              📷
+              <input type="file" id="smart-note-photo" accept="image/*" capture="environment" onchange="handleSmartNotePhoto(this)" style="display:none">
+            </label>
             <button class="smart-note-go" id="smart-note-go" onclick="submitSmartNote()">→</button>
           </div>
           <div id="smart-note-preview" class="smart-note-preview hidden"></div>

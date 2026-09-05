@@ -50,36 +50,6 @@
     <section id="tab-actions" class="tab-panel">
       <div class="action-grid">
         <div class="action-card">
-          <h3>Calendar — Add Event</h3>
-          <div class="form-group">
-            <label>Title</label>
-            <input type="text" id="cal-title" placeholder="e.g. Physics">
-          </div>
-          <div class="form-group">
-            <label>Date</label>
-            <input type="date" id="cal-date">
-          </div>
-          <div class="form-check">
-            <input type="checkbox" id="cal-weekly" onchange="document.getElementById('cal-day-group').style.display=this.checked?'block':'none';document.getElementById('cal-date-group').style.display=this.checked?'none':'block'">
-            <span>Repeats every week</span>
-          </div>
-          <div class="form-group" id="cal-day-group" style="display:none">
-            <label>Day</label>
-            <select id="cal-day">
-              <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
-              <option>Thursday</option><option>Friday</option><option>Saturday</option><option>Sunday</option>
-            </select>
-          </div>
-          <div id="cal-date-group">
-            <div class="form-row">
-              <div class="form-group"><label>Start</label><input type="time" id="cal-start"></div>
-              <div class="form-group"><label>End</label><input type="time" id="cal-end"></div>
-            </div>
-          </div>
-          <button onclick="addManualEvent()">Add to Calendar</button>
-          <div id="cal-add-out" class="result"></div>
-        </div>
-        <div class="action-card">
           <h3>Calendar — Snap Timetable</h3>
           <p class="muted" style="margin:0 0 8px;font-size:12px">Upload a photo of your timetable to extract events via Gemini.</p>
           <input type="file" id="cal-snap-input" accept="image/*" onchange="extractFromSnap(this)" style="font-size:12px">

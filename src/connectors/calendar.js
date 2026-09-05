@@ -65,10 +65,10 @@ export class CalendarConnector {
     );
   }
 
-  async createEvent(eventBody) {
+  async createEvent(eventBody, calendarId) {
     const cal = google.calendar({ version: 'v3', auth: this.oauth2Client });
     const res = await cal.events.insert({
-      calendarId: this.calendarId,
+      calendarId: calendarId || this.calendarId,
       requestBody: eventBody
     });
     return res.data;

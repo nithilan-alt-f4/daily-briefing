@@ -8,7 +8,8 @@ export const config = {
   gcal: {
     clientId: process.env.GCAL_CLIENT_ID || '',
     clientSecret: process.env.GCAL_CLIENT_SECRET || '',
-    calendarId: process.env.GCAL_CALENDAR_ID || 'primary'
+    calendarId: process.env.GCAL_CALENDAR_ID || 'primary',
+    schoolCalendarId: process.env.GCAL_SCHOOL_CALENDAR_ID || 'primary'
   },
   nps: {
     portalUrl: process.env.NPS_PORTAL_URL || 'https://parent.npsnorthacadamis.com/',

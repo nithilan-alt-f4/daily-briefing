@@ -163,7 +163,7 @@ function renderSchedule(sched) {
       `<div class="class-card"><span class="class-name">${escapeHtml(c)}</span></div>`
     ).join('');
   } else if (sched.classesPlaceholder) {
-    // No Aakash classes on calendar — show add buttons (debug page only)
+    // No classes on calendar — show add buttons
     $('#classes-body').innerHTML = `
       <p class="class-empty">No classes on the calendar yet.</p>
       <div style="display:flex;gap:8px;margin-top:0.6rem">
@@ -175,10 +175,29 @@ function renderSchedule(sched) {
     $('#classes-body').innerHTML = '<p class="class-empty">No classes today.</p>';
   }
 
-  const exam = sched.exams?.[0];
-  $('#exam-strip').innerHTML = exam
-    ? `<div class="exam-strip"><span class="ex-date">${dayLabel(exam.date)}</span><span>${escapeHtml(exam.title)}</span></div>`
-    : '';
+  // Week's upcoming tests/practicals/exams (all-in-one list)
+  const upcomingTests = sched.upcomingTests || [];
+  if (upcomingTests.length > 0) {
+    const testsHtml = upcomingTests.map(t => {
+      const kindLabel = t.kind === 'practical' ? 'Practical' : t.kind === 'quiz' ? 'Quiz' : t.kind === 'exam' ? 'Exam' : 'Test';
+      const kindClass = t.kind === 'practical' ? 'kind-practical' : t.kind === 'quiz' ? 'kind-quiz' : t.kind === 'exam' ? 'kind-exam' : 'kind-test';
+      return `
+        <div class="upcoming-test-item">
+          <span class="test-kind ${kindClass}">${kindLabel}</span>
+          <span class="test-date">${dayLabel(t.date)}</span>
+          <span class="test-title">${escapeHtml(t.title)}</span>
+        </div>
+      `;
+    }).join('');
+    $('#exam-strip').innerHTML = `
+      <div class="upcoming-tests-section">
+        <div class="upcoming-tests-head">This Week's Tests & Practical</div>
+        ${testsHtml}
+      </div>
+    `;
+  } else {
+    $('#exam-strip').innerHTML = '';
+  }
 
   const sat = sched.saturday;
   $('#saturday-line').innerHTML = sat
@@ -765,6 +784,195 @@ function dismissSmartNote() {
   smartNoteParsed = null;
 }
 window.dismissSmartNote = dismissSmartNote;
+
+// ---------- Smart Note Photo ----------
+let smartNotePhotoEvents = null;
+
+async function handleSmartNotePhoto(input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  
+  const preview = $('#smart-note-preview');
+  preview.classList.remove('hidden');
+  preview.innerHTML = '<p class="empty-note">Reading image…</p>';
+  
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const base64 = reader.result.split(',')[1];
+    preview.innerHTML = '<p class="empty-note">Analyzing with AI…</p>';
+    
+    try {
+      const result = await api('/api/notes/parse-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: base64, mimeType: file.type || 'image/jpeg' })
+      });
+      
+      const events = result.events || [];
+      if (events.length === 0) {
+        preview.innerHTML = `
+          <span class="snp-type note">No events found</span>
+          <p class="snp-title">Couldn't find any calendar events in this image.</p>
+          <div class="snp-actions">
+            <button class="btn secondary" onclick="dismissSmartNotePhoto()">OK</button>
+          </div>
+        `;
+        return;
+      }
+      
+      smartNotePhotoEvents = events;
+      renderSmartNotePhotoPreview(events);
+    } catch (err) {
+      preview.innerHTML = `<p class="empty-note" style="color:var(--accent)">Failed: ${escapeHtml(err.message)}</p>`;
+    }
+  };
+  reader.readAsDataURL(file);
+  input.value = ''; // Reset for re-upload
+}
+window.handleSmartNotePhoto = handleSmartNotePhoto;
+
+function renderSmartNotePhotoPreview(events) {
+  const preview = $('#smart-note-preview');
+  
+  if (events.length === 1) {
+    const e = events[0];
+    const details = [];
+    if (e.date) {
+      const d = new Date(e.date + 'T00:00:00');
+      details.push(`<b>${d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</b>`);
+    }
+    if (e.startTime) {
+      const [h, m] = e.startTime.split(':');
+      const ampm = parseInt(h) >= 12 ? 'pm' : 'am';
+      const h12 = parseInt(h) % 12 || 12;
+      details.push(`${h12}:${m} ${ampm}`);
+    }
+    if (e.location) details.push(escapeHtml(e.location));
+    const targetCal = e.isSchool ? 'School calendar' : 'Personal calendar';
+    
+    preview.innerHTML = `
+      <span class="snp-type event">Event from Photo</span>
+      <p class="snp-title">${escapeHtml(e.title)}</p>
+      <p class="snp-details">${details.join(' · ') || 'All day'}</p>
+      <p class="snp-details" style="font-size:0.8em;color:var(--muted)">→ ${targetCal}</p>
+      <div class="snp-actions">
+        <button class="btn" onclick="saveSmartNotePhotoEvent(0)">Add to Calendar</button>
+        <button class="btn secondary" onclick="dismissSmartNotePhoto()">Dismiss</button>
+      </div>
+    `;
+  } else {
+    // Multiple events (timetable)
+    const html = events.map((e, i) => {
+      const dayInfo = e.weekly && e.dayOfWeek ? `${e.dayOfWeek} weekly` : 
+                      e.date ? new Date(e.date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }) : '';
+      const timeInfo = e.startTime ? `${e.startTime}${e.endTime ? '–' + e.endTime : ''}` : '';
+      const targetCal = e.isSchool ? 'School' : 'Personal';
+      return `
+        <div class="photo-event-item">
+          <div class="photo-event-title">${escapeHtml(e.title)}</div>
+          <div class="photo-event-meta">${dayInfo}${timeInfo ? ' · ' + timeInfo : ''} → ${targetCal}</div>
+          <button class="btn small" onclick="saveSmartNotePhotoEvent(${i})">Add</button>
+        </div>
+      `;
+    }).join('');
+    
+    preview.innerHTML = `
+      <span class="snp-type event">${events.length} events from Photo</span>
+      <div class="photo-events-list">${html}</div>
+      <div class="snp-actions">
+        <button class="btn" onclick="saveAllSmartNotePhotoEvents()">Add All</button>
+        <button class="btn secondary" onclick="dismissSmartNotePhoto()">Dismiss</button>
+      </div>
+    `;
+  }
+}
+
+async function saveSmartNotePhotoEvent(idx) {
+  if (!smartNotePhotoEvents || !smartNotePhotoEvents[idx]) return;
+  const e = smartNotePhotoEvents[idx];
+  const preview = $('#smart-note-preview');
+  
+  try {
+    const r = await api('/api/calendar/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: e.title,
+        date: e.date,
+        startTime: e.startTime,
+        endTime: e.endTime,
+        weekly: e.weekly || false,
+        dayOfWeek: e.dayOfWeek || null
+      })
+    });
+    
+    // Mark as saved
+    smartNotePhotoEvents[idx]._saved = true;
+    
+    // Re-render if multiple, or show success if single
+    if (smartNotePhotoEvents.length === 1) {
+      preview.innerHTML = `
+        <span class="snp-type event">Added</span>
+        <p class="snp-title">${escapeHtml(e.title)}</p>
+        <p class="snp-details">Saved to <a href="${r.link}" target="_blank" style="color:var(--accent)">Google Calendar</a></p>
+      `;
+      smartNotePhotoEvents = null;
+      loadMonth();
+    } else {
+      // Update the specific item to show "saved"
+      const items = preview.querySelectorAll('.photo-event-item');
+      if (items[idx]) {
+        items[idx].querySelector('button').textContent = '✓ Saved';
+        items[idx].querySelector('button').disabled = true;
+        items[idx].style.opacity = '0.6';
+      }
+    }
+  } catch (err) {
+    alert(`Failed to save: ${err.message}`);
+  }
+}
+window.saveSmartNotePhotoEvent = saveSmartNotePhotoEvent;
+
+async function saveAllSmartNotePhotoEvents() {
+  if (!smartNotePhotoEvents || smartNotePhotoEvents.length === 0) return;
+  const preview = $('#smart-note-preview');
+  
+  let saved = 0, failed = 0;
+  for (let i = 0; i < smartNotePhotoEvents.length; i++) {
+    if (smartNotePhotoEvents[i]._saved) continue;
+    try {
+      const e = smartNotePhotoEvents[i];
+      await api('/api/calendar/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: e.title,
+          date: e.date,
+          startTime: e.startTime,
+          endTime: e.endTime,
+          weekly: e.weekly || false,
+          dayOfWeek: e.dayOfWeek || null
+        })
+      });
+      smartNotePhotoEvents[i]._saved = true;
+      saved++;
+    } catch { failed++; }
+  }
+  
+  preview.innerHTML = `
+    <span class="snp-type event">Done</span>
+    <p class="snp-title">${saved} event${saved !== 1 ? 's' : ''} saved${failed ? `, ${failed} failed` : ''}</p>
+  `;
+  smartNotePhotoEvents = null;
+  loadMonth();
+}
+window.saveAllSmartNotePhotoEvents = saveAllSmartNotePhotoEvents;
+
+function dismissSmartNotePhoto() {
+  $('#smart-note-preview').classList.add('hidden');
+  smartNotePhotoEvents = null;
+}
+window.dismissSmartNotePhoto = dismissSmartNotePhoto;
 
 // ---------- Notes tab ----------
 let notesLoaded = false;

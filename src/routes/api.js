@@ -66,6 +66,10 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
   router.get('/schedule/today', async (req, res) => {
     try {
       const now = new Date();
+      const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+      
+      // Week scope: from now to end of next 7 days
+      const weekEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
       const endOfTomorrow = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
 
       // Next Saturday
@@ -75,21 +79,19 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
 
       const [events, holidays] = await Promise.all([
         calendar.isConnected()
-          ? getCachedCalendarEvents(calendar, now, endOfTomorrow, 80)
+          ? getCachedCalendarEvents(calendar, now, weekEnd, 100)
           : Promise.resolve([]),
         Item.find({ type: 'holiday' }).lean()
       ]);
 
-      // Use ALL events from ALL calendars (not just /school/) so Aakash coaching, primary, etc. all show
-      const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
       const todayKey = istNow.toISOString().slice(0, 10);
       const tomorrowKey = new Date(istNow.getTime() + 86400000).toISOString().slice(0, 10);
       console.log(`[Schedule] Calendars fetched: ${[...new Set(events.map(e => e.calendarName))].join(', ')} (${events.length} events total)`);
 
-      // Today's classes: whatever is on any calendar today that isn't an exam, birthday, or holiday
+      // Today's classes: whatever is on any calendar today that isn't an exam/test/practical, birthday, or holiday
       const classes = events
         .filter(e => (e.start || '').slice(0, 10) === todayKey)
-        .filter(e => !/exam|test|akats|quiz/i.test(e.title))
+        .filter(e => !/exam|test|akats|quiz|practical/i.test(e.title))
         .filter(e => !e.isBirthday)
         .filter(e => !/holiday/i.test(e.calendarName || ''))
         .map(e => cleanTitle(e.title));
@@ -97,13 +99,23 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
       // Tomorrow's classes (used when today has none and it's after 5 PM)
       const tomorrowClasses = events
         .filter(e => (e.start || '').slice(0, 10) === tomorrowKey)
-        .filter(e => !/exam|test|akats|quiz/i.test(e.title))
+        .filter(e => !/exam|test|akats|quiz|practical/i.test(e.title))
         .filter(e => !e.isBirthday)
         .filter(e => !/holiday/i.test(e.calendarName || ''))
         .map(e => cleanTitle(e.title));
 
-      const exams = events.filter(e => /exam|test|akats|quiz/i.test(e.title) && new Date(e.start) >= now)
-        .map(e => ({ title: e.title, date: e.start }))
+      // Week's upcoming tests/practicals/exams (all in one list, week-scoped)
+      const upcomingTests = events
+        .filter(e => /exam|test|akats|quiz|practical/i.test(e.title))
+        .filter(e => new Date(e.start) >= now && new Date(e.start) <= weekEnd)
+        .map(e => {
+          const t = (e.title || '').toLowerCase();
+          let kind = 'test';
+          if (/practical/i.test(e.title)) kind = 'practical';
+          else if (/exam/i.test(e.title)) kind = 'exam';
+          else if (/quiz|akats/i.test(e.title)) kind = 'quiz';
+          return { title: e.title, date: e.start, kind };
+        })
         .sort((a, b) => new Date(a.date) - new Date(b.date));
 
       // Saturday holiday check from NPS school calendar
@@ -128,7 +140,7 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
         showTomorrow,
         tomorrowDay: tomorrowKey,
         classesPlaceholder,
-        exams,
+        upcomingTests,
         saturday: {
           date: satKey,
           isHoliday: !!saturdayHoliday,
@@ -681,11 +693,16 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
   router.post('/calendar/add', async (req, res) => {
     try {
       if (!calendar.isConnected()) return res.status(400).json({ error: 'Calendar not connected' });
-      const { title, date, startTime, endTime, weekly, dayOfWeek } = req.body;
+      const { title, date, startTime, endTime, weekly, dayOfWeek, calendarId: explicitCalendarId } = req.body;
       if (!title || !date) return res.status(400).json({ error: 'title and date required' });
 
+      // Determine target calendar: school vs personal
+      const schoolCalendarId = process.env.GCAL_SCHOOL_CALENDAR_ID || 'primary';
+      const isSchoolEvent = isSchoolRelated(title);
+      const targetCalendarId = explicitCalendarId || (isSchoolEvent ? schoolCalendarId : 'primary');
+
       const tz = 'Asia/Kolkata';
-      const body = { summary: title, description: 'Added via Daily Briefing debug console' };
+      const body = { summary: title, description: 'Added via Daily Briefing' };
 
       if (weekly && dayOfWeek) {
         // Build IST datetime strings
@@ -724,12 +741,25 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
         body.end = { date: nd.toISOString().slice(0, 10) };
       }
 
-      const result = await calendar.createEvent(body);
-      res.json({ ok: true, id: result.id, link: result.htmlLink });
+      const result = await calendar.createEvent(body, targetCalendarId);
+      res.json({ ok: true, id: result.id, link: result.htmlLink, calendar: isSchoolEvent ? 'school' : 'personal' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
+
+  // Helper: detect if an event is school-related
+  function isSchoolRelated(title) {
+    const t = (title || '').toLowerCase();
+    // Subject names
+    const subjects = ['physics', 'mathematics', 'maths', 'math', 'chemistry', 'biology', 'english', 'hindi', 'computer', 'science', 'social', 'history', 'geography', 'economics', 'cs', 'it'];
+    // School-related keywords
+    const keywords = ['exam', 'test', 'practical', 'class', 'quiz', 'akats', 'coaching', 'aakash', 'lecture', 'lesson', 'assignment', 'homework', 'project', 'lab', 'viva'];
+    
+    const hasSubject = subjects.some(s => t.includes(s));
+    const hasKeyword = keywords.some(k => t.includes(k));
+    return hasSubject || hasKeyword;
+  }
 
   // ---- Extract events from timetable image via Gemini ----
   router.post('/calendar/extract', async (req, res) => {
@@ -870,6 +900,87 @@ Rules:
 
       const parsed = JSON.parse(jsonMatch[0]);
       res.json(parsed);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ---- Smart note: parse image (handwritten note or timetable) → calendar events ----
+  router.post('/notes/parse-image', async (req, res) => {
+    try {
+      const { imageBase64, mimeType } = req.body;
+      if (!imageBase64) return res.status(400).json({ error: 'imageBase64 required' });
+      const key = process.env.GEMINI_API_KEY;
+      if (!key) return res.status(400).json({ error: 'GEMINI_API_KEY not configured' });
+
+      const now = new Date();
+      const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+      const istDate = istNow.toISOString().slice(0, 10);
+      const CURRENT_YEAR = istNow.getFullYear();
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const istDay = dayNames[istNow.getUTCDay()];
+
+      const prompt = `You are a smart calendar assistant. Analyze this image from a school student.
+
+Today is ${istDay}, ${istDate} (IST timezone, Asia/Kolkata).
+
+Determine what this image contains:
+
+1. If it's a SINGLE handwritten or printed note (e.g., "dentist 3pm tuesday", "math test friday"), return a JSON object with a single event:
+{ "type": "single", "events": [{ "title": "clean title", "date": "YYYY-MM-DD", "startTime": "HH:MM" or null, "endTime": "HH:MM" or null, "location": "inferred or null", "description": "short note", "weekly": false, "dayOfWeek": null }] }
+
+2. If it's a TIMETABLE or schedule with MULTIPLE classes/events, return:
+{ "type": "timetable", "events": [ ... array of events ... ] }
+
+3. If it's NOT calendar-worthy (just a photo, random image, etc.), return:
+{ "type": "none", "events": [] }
+
+For each event:
+- "date": Use YYYY-MM-DD format. Year is ${CURRENT_YEAR}.
+- "sunday", "monday", etc. means the UPCOMING occurrence of that day.
+- "tomorrow" = ${new Date(istNow.getTime() + 86400000).toISOString().slice(0, 10)}
+- If it's a recurring weekly class, set "weekly": true and "dayOfWeek": "Monday"/"Tuesday"/etc
+- If it mentions a subject (Physics, Mathematics, Chemistry, Biology, English, Computer Science, CS, etc.) or exam/test/practical/quiz/coaching/Aakash → include that in the title clearly.
+- Infer times if partially given (e.g., "9-10" → startTime: "09:00", endTime: "10:00").
+- If no time is given, set startTime and endTime to null (all-day event).
+
+Rules:
+- Be generous about detecting school-related events.
+- "practical" or "practicals" in the title means it's a lab practical session.
+- Common abbreviations: "phy" → Physics, "chem" → Chemistry, "math" → Mathematics, "bio" → Biology, "eng" → English, "cs" → Computer Science.
+
+Return ONLY the JSON object, nothing else.`;
+
+      const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${key}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [
+            { text: prompt },
+            { inline_data: { mime_type: mimeType || 'image/jpeg', data: imageBase64 } }
+          ] }]
+        })
+      });
+
+      if (!resp.ok) {
+        const err = await resp.text();
+        throw new Error(`Gemini API error ${resp.status}: ${err}`);
+      }
+
+      const data = await resp.json();
+      const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in Gemini response');
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      
+      // Normalize events: ensure each has a 'date' field (map singleDate → date if needed)
+      const events = (parsed.events || []).map(e => ({
+        ...e,
+        date: e.date || e.singleDate || null
+      }));
+      
+      res.json({ type: parsed.type || 'none', events });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

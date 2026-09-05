@@ -471,6 +471,22 @@ section { margin-bottom: 1.8rem; }
 }
 .smart-note-go:active { background: var(--accent); color: var(--paper); }
 
+.smart-note-camera {
+  font-size: 1.3rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+  background: var(--paper-deep);
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.smart-note-camera:hover { border-color: var(--accent); }
+.smart-note-camera:active { background: var(--accent-soft); }
+
 .smart-note-preview {
   margin-top: 0.8rem;
   background: var(--paper-deep);
@@ -480,6 +496,25 @@ section { margin-bottom: 1.8rem; }
   animation: viewIn 0.35s var(--ease-out);
 }
 .smart-note-preview.hidden { display: none; }
+
+.photo-events-list { margin: 0.5rem 0; }
+.photo-event-item {
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.photo-event-item:last-child { border-bottom: none; }
+.photo-event-title { font-weight: 600; }
+.photo-event-meta { font-size: 0.8em; color: var(--muted); }
+.photo-event-item .btn.small {
+  align-self: flex-start;
+  font-size: 0.7rem;
+  padding: 0.3rem 0.6rem;
+  margin-top: 0.3rem;
+}
+
 .snp-type {
   display: inline-block;
   font-size: 0.62rem;
@@ -782,6 +817,49 @@ section { margin-bottom: 1.8rem; }
   font-weight: 900;
   font-size: var(--step-1);
   white-space: nowrap;
+}
+
+/* ---- Upcoming Tests Section ---- */
+.upcoming-tests-section {
+  margin-top: 0.5rem;
+  padding: 0.8rem 0;
+  border-top: 1px solid var(--hairline);
+}
+.upcoming-tests-head {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+.upcoming-test-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0;
+  font-size: var(--step--1);
+}
+.test-kind {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.4rem;
+  border-radius: 2px;
+  color: var(--paper);
+}
+.test-kind.kind-practical { background: #6b4c9a; }
+.test-kind.kind-test { background: #8a4a2b; }
+.test-kind.kind-exam { background: var(--accent); }
+.test-kind.kind-quiz { background: #2b6a7c; }
+.test-date {
+  color: var(--muted);
+  font-size: 0.85em;
+  min-width: 60px;
+}
+.test-title {
+  flex: 1;
 }
 
 /* ---- Saturday line ---- */
