@@ -1,9 +1,6 @@
 import { google } from 'googleapis';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { Token } from '../models/Token.js';
 
-const TOKEN_PATH = join(dirname(fileURLToPath(import.meta.url)), '../../calendar-tokens.json');
 const SCOPES = ['https://www.googleapis.com/auth/calendar'];
 
 export class CalendarConnector {
@@ -11,23 +8,26 @@ export class CalendarConnector {
     this.enabled = !!(config.clientId && config.clientSecret);
     this.calendarId = config.calendarId || 'primary';
     this.lastError = null;
+    this.tokensLoaded = false;
     if (this.enabled) {
       this.oauth2Client = new google.auth.OAuth2(
         config.clientId,
         config.clientSecret,
         config.redirectUri || 'http://localhost'
       );
-      this._loadTokens();
+      // Load tokens asynchronously - don't await in constructor
+      this._loadTokens().then(() => { this.tokensLoaded = true; });
     }
   }
 
-  _loadTokens() {
+  async _loadTokens() {
     try {
-      if (existsSync(TOKEN_PATH)) {
-        this.oauth2Client.setCredentials(JSON.parse(readFileSync(TOKEN_PATH, 'utf8')));
-        console.log('[Calendar] Loaded saved tokens');
+      const tokenDoc = await Token.findOne({ service: 'calendar' });
+      if (tokenDoc) {
+        this.oauth2Client.setCredentials(tokenDoc.tokens);
+        console.log('[Calendar] Loaded saved tokens from MongoDB');
       } else {
-        console.log('[Calendar] No saved tokens found at', TOKEN_PATH);
+        console.log('[Calendar] No saved tokens found in MongoDB');
       }
     } catch (err) {
       console.error('[Calendar] Failed to load tokens:', err.message);
@@ -45,8 +45,12 @@ export class CalendarConnector {
   async setCredentials(code) {
     const { tokens } = await this.oauth2Client.getToken(code);
     this.oauth2Client.setCredentials(tokens);
-    writeFileSync(TOKEN_PATH, JSON.stringify(tokens));
-    console.log('[Calendar] Tokens saved');
+    await Token.findOneAndUpdate(
+      { service: 'calendar' },
+      { tokens, updatedAt: new Date() },
+      { upsert: true }
+    );
+    console.log('[Calendar] Tokens saved to MongoDB');
     return tokens;
   }
 

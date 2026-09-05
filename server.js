@@ -15,6 +15,7 @@ import { SyncService } from './src/services/sync.js';
 import { Summarizer } from './src/services/summarizer.js';
 import { AakashSync } from './src/aakash.js';
 import { createRoutes } from './src/routes/api.js';
+import { migrateTokensToMongoDB } from './src/utils/migrateTokens.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -69,7 +70,11 @@ app.listen(config.port, () => {
 });
 
 connectDb(config.mongoUri)
-  .then(() => console.log('Connected to MongoDB'))
+  .then(async () => {
+    console.log('Connected to MongoDB');
+    // Migrate tokens from JSON files to MongoDB (one-time)
+    await migrateTokensToMongoDB();
+  })
   .catch(err => console.error('MongoDB connection FAILED:', err.message, '- API endpoints needing DB will error.'));
 
 mkdirSync(join(__dirname, 'downloads'), { recursive: true });

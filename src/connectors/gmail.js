@@ -2,9 +2,9 @@ import { google } from 'googleapis';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { Token } from '../models/Token.js';
 
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
-const TOKEN_PATH = join(dirname(fileURLToPath(import.meta.url)), '../../gmail-tokens.json');
 
 // AI classification cache: messageId -> 'keep' | 'drop'
 const classifyCache = new Map();
@@ -30,21 +30,26 @@ export class GmailConnector {
     this.enabled = !!(config.clientId && config.clientSecret);
     this.config = config;
     this.classifier = null; // set externally: async (subject, body) => 'keep' | 'drop'
+    this.tokensLoaded = false;
     if (this.enabled) {
       this.oauth2Client = new google.auth.OAuth2(
         config.clientId,
         config.clientSecret,
         config.redirectUri
       );
-      this._loadTokens();
+      // Load tokens asynchronously - don't await in constructor
+      this._loadTokens().then(() => { this.tokensLoaded = true; });
     }
   }
 
-  _loadTokens() {
+  async _loadTokens() {
     try {
-      if (existsSync(TOKEN_PATH)) {
-        this.oauth2Client.setCredentials(JSON.parse(readFileSync(TOKEN_PATH, 'utf8')));
-        console.log('[Gmail] Loaded saved tokens');
+      const tokenDoc = await Token.findOne({ service: 'gmail' });
+      if (tokenDoc) {
+        this.oauth2Client.setCredentials(tokenDoc.tokens);
+        console.log('[Gmail] Loaded saved tokens from MongoDB');
+      } else {
+        console.log('[Gmail] No saved tokens found in MongoDB');
       }
     } catch (err) {
       console.error('[Gmail] Failed to load tokens:', err.message);
@@ -62,8 +67,12 @@ export class GmailConnector {
   async setCredentials(code) {
     const { tokens } = await this.oauth2Client.getToken(code);
     this.oauth2Client.setCredentials(tokens);
-    writeFileSync(TOKEN_PATH, JSON.stringify(tokens));
-    console.log('[Gmail] Tokens saved');
+    await Token.findOneAndUpdate(
+      { service: 'gmail' },
+      { tokens, updatedAt: new Date() },
+      { upsert: true }
+    );
+    console.log('[Gmail] Tokens saved to MongoDB');
     return tokens;
   }
 
