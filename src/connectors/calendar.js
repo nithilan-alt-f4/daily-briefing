@@ -8,16 +8,21 @@ export class CalendarConnector {
     this.enabled = !!(config.clientId && config.clientSecret);
     this.calendarId = config.calendarId || 'primary';
     this.lastError = null;
-    this.tokensLoaded = false;
     if (this.enabled) {
       this.oauth2Client = new google.auth.OAuth2(
         config.clientId,
         config.clientSecret,
         config.redirectUri || 'http://localhost'
       );
-      // Load tokens asynchronously - don't await in constructor
-      this._loadTokens().then(() => { this.tokensLoaded = true; });
     }
+  }
+
+  // Call this after MongoDB is connected
+  async init() {
+    if (this.enabled) {
+      await this._loadTokens();
+    }
+    return this;
   }
 
   async _loadTokens() {

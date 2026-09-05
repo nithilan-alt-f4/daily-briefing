@@ -30,16 +30,21 @@ export class GmailConnector {
     this.enabled = !!(config.clientId && config.clientSecret);
     this.config = config;
     this.classifier = null; // set externally: async (subject, body) => 'keep' | 'drop'
-    this.tokensLoaded = false;
     if (this.enabled) {
       this.oauth2Client = new google.auth.OAuth2(
         config.clientId,
         config.clientSecret,
         config.redirectUri
       );
-      // Load tokens asynchronously - don't await in constructor
-      this._loadTokens().then(() => { this.tokensLoaded = true; });
     }
+  }
+
+  // Call this after MongoDB is connected
+  async init() {
+    if (this.enabled) {
+      await this._loadTokens();
+    }
+    return this;
   }
 
   async _loadTokens() {

@@ -74,6 +74,10 @@ connectDb(config.mongoUri)
     console.log('Connected to MongoDB');
     // Migrate tokens from JSON files to MongoDB (one-time)
     await migrateTokensToMongoDB();
+    // Load OAuth tokens now that DB is connected
+    await Promise.all([gmail.init(), calendar.init()]);
+    // Kick off initial sync after tokens are loaded
+    safeSync('startup');
   })
   .catch(err => console.error('MongoDB connection FAILED:', err.message, '- API endpoints needing DB will error.'));
 
@@ -87,9 +91,7 @@ cron.schedule('0 13 * * *', () => safeSync('afternoon cron'));
 // Aakash WhatsApp -> School calendar sync every midnight
 cron.schedule('0 0 * * *', () => safeAakashSync('midnight cron'));
 
-// Kick off initial sync in background
-setTimeout(() => safeSync('startup'), 3000);
-setTimeout(() => safeAakashSync('startup'), 10000);
+// Note: startup sync moved to after DB connection and token loading
 
 async function safeAakashSync(cause) {
   try {
