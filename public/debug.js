@@ -325,3 +325,21 @@ async function saveAllExtracted() {
   out.innerHTML = `<div class="ok-line">${saved} saved, ${failed} failed</div>`;
 }
 window.saveAllExtracted = saveAllExtracted;
+
+// ---- GitHub Actions Sync ----
+async function triggerGitHubSync() {
+  const el = $('#github-sync-out');
+  el.innerHTML = '<div class="ok-line">Triggering GitHub Actions workflow...</div>';
+  try {
+    const result = await api('/api/sync/trigger-github', { method: 'POST' });
+    if (result.success) {
+      el.innerHTML = `<div class="ok-line">✓ ${escapeHtml(result.message)}</div>
+        <div style="margin-top:8px"><a href="${result.workflowUrl}" target="_blank" style="font-size:12px">View workflow run on GitHub →</a></div>`;
+    } else {
+      el.innerHTML = `<div class="err-box">${escapeHtml(result.error || 'Unknown error')}</div>`;
+    }
+  } catch (err) {
+    el.innerHTML = `<div class="err-box">${escapeHtml(err.message)}</div>`;
+  }
+}
+window.triggerGitHubSync = triggerGitHubSync;

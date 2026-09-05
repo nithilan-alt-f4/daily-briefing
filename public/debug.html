@@ -109,6 +109,12 @@
           <button onclick="doSync('/api/summarize', '#maint-out')">Summarize pending items</button>
           <div id="maint-out" class="result"></div>
         </div>
+        <div class="action-card">
+          <h3>GitHub Actions Sync</h3>
+          <p class="muted" style="margin:0 0 8px;font-size:12px">Trigger NPS sync from GitHub Actions (clean IPs, bypasses NPS blocking)</p>
+          <button onclick="triggerGitHubSync()">Trigger GitHub Sync</button>
+          <div id="github-sync-out" class="result"></div>
+        </div>
       </div>
     </section>
 

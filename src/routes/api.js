@@ -426,6 +426,54 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
   router.post('/sync/news', runSync('news'));
   router.post('/sync/all', runSync('all'));
 
+  // ---- GitHub Actions trigger ----
+  router.post('/sync/trigger-github', async (req, res) => {
+    const GITHUB_PAT = process.env.GITHUB_PAT;
+    const REPO = 'nithilan-alt-f4/daily-briefing';
+    
+    if (!GITHUB_PAT) {
+      return res.status(500).json({ 
+        error: 'GITHUB_PAT not configured on server',
+        hint: 'Add GITHUB_PAT to Render environment variables'
+      });
+    }
+
+    try {
+      const response = await fetch(
+        `https://api.github.com/repos/${REPO}/actions/workflows/sync.yml/dispatches`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${GITHUB_PAT}`,
+            'Accept': 'application/vnd.github+json',
+            'User-Agent': 'daily-briefing-app',
+            'X-GitHub-Api-Version': '2022-11-28'
+          },
+          body: JSON.stringify({ ref: 'master' })
+        }
+      );
+
+      if (response.status === 204) {
+        // Success - GitHub returns 204 No Content for successful dispatch
+        res.json({ 
+          success: true, 
+          message: 'GitHub Actions workflow triggered successfully',
+          workflowUrl: `https://github.com/${REPO}/actions`
+        });
+      } else {
+        const text = await response.text();
+        let errorData;
+        try { errorData = JSON.parse(text); } catch { errorData = { message: text }; }
+        res.status(response.status).json({ 
+          error: 'Failed to trigger workflow', 
+          details: errorData 
+        });
+      }
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ---- Briefing ----
   router.get('/briefing', async (req, res) => {
     try {
