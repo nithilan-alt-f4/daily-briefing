@@ -17,8 +17,9 @@ const calendarCache = { events: null, at: 0, start: null, end: null };
 
 async function getCachedCalendarEvents(calendar, start, end, maxPerCal) {
   const now = Date.now();
-  // Reuse cache if fresh enough AND the cached range covers the request
-  if (calendarCache.events && (now - calendarCache.at) < CAL_CACHE_TTL
+  // Reuse cache if fresh enough AND the cached range covers the request AND cache has data
+  // (Don't cache empty results - they might be due to transient auth errors)
+  if (calendarCache.events && calendarCache.events.length > 0 && (now - calendarCache.at) < CAL_CACHE_TTL
       && calendarCache.start <= start && calendarCache.end >= end) {
     return calendarCache.events;
   }
@@ -30,6 +31,7 @@ async function getCachedCalendarEvents(calendar, start, end, maxPerCal) {
   calendarCache.at = now;
   calendarCache.start = start;
   calendarCache.end = wideEnd;
+  console.log(`[Calendar] Fetched ${events.length} events from ${start.toISOString().slice(0,10)} to ${wideEnd.toISOString().slice(0,10)}`);
   return events;
 }
 
