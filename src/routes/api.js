@@ -962,12 +962,12 @@ Return ONLY the JSON object, nothing else.`;
         })
       });
 
-      if (!resp.ok) {
-        const err = await resp.text();
-        throw new Error(`Gemini API error ${resp.status}: ${err}`);
-      }
-
       const data = await resp.json();
+      
+      if (!resp.ok) {
+        const errMsg = data.error?.message || JSON.stringify(data);
+        throw new Error(`Gemini API error ${resp.status}: ${errMsg}`);
+      }
       const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('No JSON in Gemini response');
