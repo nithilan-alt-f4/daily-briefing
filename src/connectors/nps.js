@@ -1,13 +1,20 @@
-import { chromium } from 'playwright';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { execSync } from 'child_process';
 import { config } from '../config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SESSION_PATH = join(__dirname, '../../nps-session.json');
 const DOWNLOADS_DIR = join(__dirname, '../../downloads');
+
+// Check if Playwright is available (it's not on Render anymore - NPS sync runs on GitHub Actions)
+let chromium = null;
+try {
+  const playwright = await import('playwright');
+  chromium = playwright.chromium;
+} catch {
+  // Playwright not installed - NPS sync will run on GitHub Actions instead
+}
 
 export class NPSScraper {
   constructor() {
@@ -21,25 +28,12 @@ export class NPSScraper {
   }
 
   async _launch() {
+    if (!chromium) {
+      throw new Error('Playwright not available - NPS sync runs on GitHub Actions. Use the "Trigger GitHub Sync" button on the debug page.');
+    }
+    
     if (!this.browser) {
-      try {
-        this.browser = await chromium.launch({ headless: true });
-      } catch (err) {
-        // Browser not installed (Render build env cache doesn't persist). Try installing now.
-        if (/Executable doesn't exist/.test(err.message || '')) {
-          console.error('[NPS] Browser missing — installing chromium (takes ~30s)...');
-          try {
-            execSync('npx playwright install chromium', { stdio: 'pipe', timeout: 180000 });
-            this.browser = await chromium.launch({ headless: true });
-          } catch (err2) {
-            this.lastError = `browser install failed: ${err2.message}`;
-            console.error('[NPS] Browser auto-install failed:', err2.message);
-            throw err;
-          }
-        } else {
-          throw err;
-        }
-      }
+      this.browser = await chromium.launch({ headless: true });
       const opts = {};
       if (existsSync(SESSION_PATH)) {
         opts.storageState = SESSION_PATH;
