@@ -22,22 +22,35 @@ export class CalendarConnector {
     if (this.enabled) {
       await this._loadTokens();
       // Listen for token refresh events and persist to MongoDB
-      this.oauth2Client.on('tokens', async (tokens) => {
-        try {
-          if (tokens.refresh_token) {
-            console.log('[Calendar] New refresh_token received from Google — rotation detected');
+      this.oauth2Client.on('tokens', (tokens) => {
+        // Capture refresh_token synchronously before the googleapis library mutates it
+        const newRefreshToken = tokens.refresh_token;
+        const newAccessToken = tokens.access_token;
+        const newExpiryDate = tokens.expiry_date;
+        
+        // Run async persistence in background
+        (async () => {
+          try {
+            const existing = await Token.findOne({ service: 'calendar' });
+            if (newRefreshToken && existing?.tokens?.refresh_token) {
+              console.log('[Calendar] New refresh_token received from Google — rotation detected');
+            }
+            const merged = {
+              ...(existing?.tokens || {}),
+              access_token: newAccessToken,
+              expiry_date: newExpiryDate,
+              refresh_token: newRefreshToken || existing?.tokens?.refresh_token
+            };
+            await Token.findOneAndUpdate(
+              { service: 'calendar' },
+              { $set: { tokens: merged, updatedAt: new Date() } },
+              { upsert: true }
+            );
+            console.log('[Calendar] Auto-refreshed tokens persisted to MongoDB');
+          } catch (err) {
+            console.error('[Calendar] Failed to persist refreshed tokens:', err.message);
           }
-          const existing = await Token.findOne({ service: 'calendar' });
-          const merged = { ...(existing?.tokens || {}), ...tokens };
-          await Token.findOneAndUpdate(
-            { service: 'calendar' },
-            { $set: { tokens: merged, updatedAt: new Date() } },
-            { upsert: true }
-          );
-          console.log('[Calendar] Auto-refreshed tokens persisted to MongoDB');
-        } catch (err) {
-          console.error('[Calendar] Failed to persist refreshed tokens:', err.message);
-        }
+        })();
       });
     }
     return this;

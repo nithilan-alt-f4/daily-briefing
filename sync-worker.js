@@ -62,6 +62,9 @@ async function main() {
     redirectUri: process.env.GCAL_REDIRECT_URI || 'https://daily-briefing-6ahp.onrender.com/api/calendar/callback'
   });
 
+  // Initialize Gmail and Calendar (load tokens from MongoDB)
+  await Promise.all([gmail.init(), calendar.init()]);
+
   const syncService = new SyncService({ npsScraper, summarizer, gmail, news, calendar });
 
   // Run full sync
