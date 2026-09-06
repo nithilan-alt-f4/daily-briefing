@@ -21,6 +21,24 @@ export class CalendarConnector {
   async init() {
     if (this.enabled) {
       await this._loadTokens();
+      // Listen for token refresh events and persist to MongoDB
+      this.oauth2Client.on('tokens', async (tokens) => {
+        try {
+          if (tokens.refresh_token) {
+            console.log('[Calendar] New refresh_token received from Google — rotation detected');
+          }
+          const existing = await Token.findOne({ service: 'calendar' });
+          const merged = { ...(existing?.tokens || {}), ...tokens };
+          await Token.findOneAndUpdate(
+            { service: 'calendar' },
+            { $set: { tokens: merged, updatedAt: new Date() } },
+            { upsert: true }
+          );
+          console.log('[Calendar] Auto-refreshed tokens persisted to MongoDB');
+        } catch (err) {
+          console.error('[Calendar] Failed to persist refreshed tokens:', err.message);
+        }
+      });
     }
     return this;
   }
