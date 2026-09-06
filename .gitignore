@@ -8,3 +8,6 @@ media/
 nps-session.json
 gmail-classify-cache.json
 local.properties
+calendar-tokens.json
+gmail-tokens.json
+*.migrated
