@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { Token } from '../models/Token.js';
+import { isSchoolRelated } from '../utils/isSchoolRelated.js';
 
 const SCOPES = ['https://www.googleapis.com/auth/calendar'];
 
@@ -377,6 +378,120 @@ export class CalendarConnector {
     } catch (err) {
       console.error('[Calendar] acceptPendingInvitations failed:', err.message);
       return { accepted: 0, deduped: 0, error: err.message };
+    }
+  }
+
+  // Scan personal calendar for school-related events, move them to school calendar
+  async moveSchoolEvents() {
+    try {
+      const cal = google.calendar({ version: 'v3', auth: this.oauth2Client });
+      const calendars = await this._listCalendars();
+      const schoolCal = calendars.find(c => /school/i.test(c.summary || ''));
+      const primaryCal = calendars.find(c => /primary/i.test(c.summary || ''));
+
+      if (!schoolCal) {
+        console.log('[Calendar] No school calendar found — skipping move');
+        return { moved: 0, skipped: 0, errors: [], error: 'No school calendar found' };
+      }
+      if (!primaryCal) {
+        console.log('[Calendar] No primary calendar found — skipping move');
+        return { moved: 0, skipped: 0, errors: [], error: 'No primary calendar found' };
+      }
+
+      console.log(`[Calendar] Scanning "${primaryCal.summary}" for school events to move to "${schoolCal.summary}"`);
+
+      // Fetch events from primary calendar (last 7 days to 60 days ahead)
+      const now = new Date();
+      const past = new Date(now.getTime() - 7 * 86400000);
+      const future = new Date(now.getTime() + 60 * 86400000);
+      const res = await cal.events.list({
+        calendarId: primaryCal.id,
+        timeMin: past.toISOString(),
+        timeMax: future.toISOString(),
+        maxResults: 200,
+        singleEvents: true,
+        orderBy: 'startTime'
+      });
+
+      const events = res.data.items || [];
+      console.log(`[Calendar] Found ${events.length} events on primary calendar`);
+
+      // Check which school events already exist on school calendar (to avoid duplicates)
+      const schoolRes = await cal.events.list({
+        calendarId: schoolCal.id,
+        timeMin: past.toISOString(),
+        timeMax: future.toISOString(),
+        maxResults: 200,
+        singleEvents: true
+      });
+      const schoolSigs = new Set();
+      for (const e of (schoolRes.data.items || [])) {
+        const start = e.start?.dateTime || e.start?.date || '';
+        schoolSigs.add(`${(e.summary || '').toLowerCase().trim()}|${start}`);
+      }
+
+      let moved = 0;
+      let skipped = 0;
+      const errors = [];
+
+      for (const event of events) {
+        const title = event.summary || '';
+        const isSchool = isSchoolRelated(title);
+
+        if (!isSchool) {
+          skipped++;
+          continue;
+        }
+
+        // Check if already on school calendar
+        const start = event.start?.dateTime || event.start?.date || '';
+        const sig = `${title.toLowerCase().trim()}|${start}`;
+        if (schoolSigs.has(sig)) {
+          // Already on school calendar — just delete from primary
+          try {
+            await cal.events.delete({
+              calendarId: primaryCal.id,
+              eventId: event.id
+            });
+            moved++;
+            console.log(`[Calendar] Removed duplicate school event from primary: "${title}"`);
+          } catch (err) {
+            errors.push(`Failed to delete "${title}": ${err.message}`);
+          }
+          continue;
+        }
+
+        // Copy to school calendar, then delete from primary
+        try {
+          const newEvent = {
+            summary: event.summary,
+            description: event.description || 'Moved from personal calendar by Daily Briefing',
+            start: event.start,
+            end: event.end,
+            location: event.location || null,
+            recurrence: event.recurrence || null,
+            reminders: event.reminders || null
+          };
+          await cal.events.insert({
+            calendarId: schoolCal.id,
+            requestBody: newEvent
+          });
+          await cal.events.delete({
+            calendarId: primaryCal.id,
+            eventId: event.id
+          });
+          moved++;
+          console.log(`[Calendar] Moved "${title}" → school calendar`);
+        } catch (err) {
+          errors.push(`Failed to move "${title}": ${err.message}`);
+        }
+      }
+
+      console.log(`[Calendar] Move complete: ${moved} moved, ${skipped} skipped, ${errors.length} errors`);
+      return { moved, skipped, errors };
+    } catch (err) {
+      console.error('[Calendar] moveSchoolEvents failed:', err.message);
+      return { moved: 0, skipped: 0, errors: [], error: err.message };
     }
   }
 }

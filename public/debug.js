@@ -343,3 +343,24 @@ async function triggerGitHubSync() {
   }
 }
 window.triggerGitHubSync = triggerGitHubSync;
+
+async function moveSchoolEvents() {
+  const el = $('#move-school-out');
+  el.innerHTML = '<div class="ok-line">Scanning personal calendar for school events...</div>';
+  try {
+    const result = await api('/api/calendar/move-school', { method: 'POST' });
+    if (result.error) {
+      el.innerHTML = `<div class="err-box">${escapeHtml(result.error)}</div>`;
+    } else {
+      let html = `<div class="ok-line">✓ Done — ${result.moved} moved, ${result.skipped} skipped</div>`;
+      if (result.errors && result.errors.length > 0) {
+        html += `<div style="margin-top:8px;font-size:12px;color:var(--muted)">Errors:</div>`;
+        html += result.errors.map(e => `<div style="font-size:11px;color:var(--accent)">${escapeHtml(e)}</div>`).join('');
+      }
+      el.innerHTML = html;
+    }
+  } catch (err) {
+    el.innerHTML = `<div class="err-box">${escapeHtml(err.message)}</div>`;
+  }
+}
+window.moveSchoolEvents = moveSchoolEvents;

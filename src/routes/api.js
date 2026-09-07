@@ -3,6 +3,7 @@ import { join } from 'path';
 import { Item } from '../models/Item.js';
 import { Note } from '../models/Note.js';
 import { dbStatus } from '../db.js';
+import { isSchoolRelated } from '../utils/isSchoolRelated.js';
 import { getLogs } from '../logger.js';
 import { validateConfig } from '../config.js';
 import { buildBriefing } from '../services/briefing.js';
@@ -486,6 +487,17 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
     }
   });
 
+  // ---- Move school events from personal calendar to school calendar ----
+  router.post('/calendar/move-school', async (req, res) => {
+    try {
+      if (!calendar.isConnected()) return res.status(400).json({ error: 'Calendar not connected' });
+      const result = await calendar.moveSchoolEvents();
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ---- Briefing ----
   router.get('/briefing', async (req, res) => {
     try {
@@ -748,19 +760,6 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
       res.status(500).json({ error: err.message });
     }
   });
-
-  // Helper: detect if an event is school-related
-  function isSchoolRelated(title) {
-    const t = (title || '').toLowerCase();
-    // Subject names (full + common abbreviations)
-    const subjects = ['physics', 'phy', 'chemistry', 'chem', 'mathematics', 'maths', 'math', 'biology', 'bio', 'english', 'eng', 'hindi', 'computer', 'computer science', 'science', 'social studies', 'social', 'history', 'geography', 'economics', 'civics', 'cs', 'it', 'accounts', 'business studies', 'bst', 'political science', 'pol science', 'sanskrit', 'french', 'german', 'spanish', 'pe', 'physical education'];
-    // School-related keywords
-    const keywords = ['exam', 'test', 'practical', 'practicals', 'class', 'quiz', 'coaching', 'aakash', 'akats', 'lecture', 'lesson', 'assignment', 'homework', 'project', 'lab', 'viva', 'ptm', 'assembly', 'sports day', 'annual day', 'farewell', 'bunk', 'period', 'timetable', 'schedule', 'tuition', 'internals', 'internals', 'semester', 'revision', 'pre-board', 'preboard', 'midterm', 'mid-term', 'half yearly', 'annual exam', 'board exam', 'cbse', 'school'];
-    
-    const hasSubject = subjects.some(s => t.includes(s));
-    const hasKeyword = keywords.some(k => t.includes(k));
-    return hasSubject || hasKeyword;
-  }
 
   // ---- Extract events from timetable image via Gemini ----
   router.post('/calendar/extract', async (req, res) => {
