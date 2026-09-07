@@ -124,11 +124,11 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
 
       const day = now.toLocaleDateString(undefined, { weekday: 'long' });
 
-      // If no classes today and it's past 5 PM, show tomorrow's classes instead
+      // If no classes today, show tomorrow's classes instead (using IST hours)
       let showClasses = classes;
       let showTomorrow = false;
       let classesPlaceholder = classes.length === 0;
-      if (classes.length === 0 && now.getHours() >= 17) {
+      if (classes.length === 0) {
         showClasses = tomorrowClasses;
         showTomorrow = true;
         classesPlaceholder = showClasses.length === 0;
