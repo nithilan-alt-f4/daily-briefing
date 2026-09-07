@@ -325,7 +325,7 @@ export class CalendarConnector {
       let deduped = 0;
       try {
         const schoolCal = calendars.find(c => /school/i.test(c.summary || ''));
-        const primaryCal = calendars.find(c => /primary/i.test(c.summary || ''));
+        const primaryCal = calendars.find(c => c.primary === true) || calendars.find(c => !/school/i.test(c.summary || ''));
         if (schoolCal && primaryCal) {
           const [schoolEvents, primaryEvents] = await Promise.all([
             calendar.events.list({
@@ -386,8 +386,12 @@ export class CalendarConnector {
     try {
       const cal = google.calendar({ version: 'v3', auth: this.oauth2Client });
       const calendars = await this._listCalendars();
-      const schoolCal = calendars.find(c => /school/i.test(c.summary || ''));
-      const primaryCal = calendars.find(c => /primary/i.test(c.summary || ''));
+      const schoolCalendarId = process.env.GCAL_SCHOOL_CALENDAR_ID;
+
+      // Find calendars: primary has .primary === true, school by name or ID
+      const primaryCal = calendars.find(c => c.primary === true) || calendars.find(c => !/school/i.test(c.summary || ''));
+      const schoolCal = calendars.find(c => /school/i.test(c.summary || ''))
+        || (schoolCalendarId ? calendars.find(c => c.id === schoolCalendarId) : null);
 
       if (!schoolCal) {
         console.log('[Calendar] No school calendar found — skipping move');
@@ -399,6 +403,9 @@ export class CalendarConnector {
       }
 
       console.log(`[Calendar] Scanning "${primaryCal.summary}" for school events to move to "${schoolCal.summary}"`);
+
+      // Log all calendars found for debugging
+      console.log(`[Calendar] Available calendars: ${calendars.map(c => `${c.summary} (${c.id}, primary=${c.primary})`).join(', ')}`);
 
       // Fetch events from primary calendar (last 7 days to 60 days ahead)
       const now = new Date();
