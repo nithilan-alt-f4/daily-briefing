@@ -38,7 +38,18 @@ async function getCachedCalendarEvents(calendar, start, end, maxPerCal) {
 
 // Strip suffixes like "Lecture", "Lec", "Lect" from class names
 function cleanTitle(t) {
-  return (t || '').replace(/\s*[-–]?\s*(Lecture|Lec|Lect|Class)\s*$/i, '').trim();
+  let s = (t || '').trim();
+  // "MATHEMATICS | LECTURE | Lecture-30" → take first segment before pipe
+  if (s.includes('|')) {
+    s = s.split('|')[0].trim();
+  }
+  // "Mathematics - Lecture 3" or "Mathematics – Lec 5" → strip trailing dash + lecture info
+  s = s.replace(/\s*[-–—]\s*(Lecture|Lec|Lect|Class|Period|Per|Slot|Session)\b.*$/i, '');
+  // Strip trailing numbers like "Lecture-30", "Lec 11"
+  s = s.replace(/\s*[-–]?\s*(Lecture|Lec|Lect|Class)\s*\d+\s*$/i, '');
+  // Title case: make it look nice
+  s = s.replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+  return s.trim();
 }
 
 export function createRoutes({ npsScraper, syncService, summarizer, gmail, calendar, aakash }) {
