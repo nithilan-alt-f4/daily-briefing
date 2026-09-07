@@ -693,12 +693,13 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
   router.post('/calendar/add', async (req, res) => {
     try {
       if (!calendar.isConnected()) return res.status(400).json({ error: 'Calendar not connected' });
-      const { title, date, startTime, endTime, weekly, dayOfWeek, calendarId: explicitCalendarId } = req.body;
+      const { title, date, startTime, endTime, weekly, dayOfWeek, calendarId: explicitCalendarId, isSchool } = req.body;
       if (!title || !date) return res.status(400).json({ error: 'title and date required' });
 
       // Determine target calendar: school vs personal
+      // Priority: explicit calendarId > isSchool flag from frontend > isSchoolRelated(title) heuristic
       const schoolCalendarId = process.env.GCAL_SCHOOL_CALENDAR_ID || 'primary';
-      const isSchoolEvent = isSchoolRelated(title);
+      const isSchoolEvent = isSchool !== undefined ? isSchool : isSchoolRelated(title);
       const targetCalendarId = explicitCalendarId || (isSchoolEvent ? schoolCalendarId : 'primary');
 
       const tz = 'Asia/Kolkata';
@@ -751,10 +752,10 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
   // Helper: detect if an event is school-related
   function isSchoolRelated(title) {
     const t = (title || '').toLowerCase();
-    // Subject names
-    const subjects = ['physics', 'mathematics', 'maths', 'math', 'chemistry', 'biology', 'english', 'hindi', 'computer', 'science', 'social', 'history', 'geography', 'economics', 'cs', 'it'];
+    // Subject names (full + common abbreviations)
+    const subjects = ['physics', 'phy', 'chemistry', 'chem', 'mathematics', 'maths', 'math', 'biology', 'bio', 'english', 'eng', 'hindi', 'computer', 'computer science', 'science', 'social studies', 'social', 'history', 'geography', 'economics', 'civics', 'cs', 'it', 'accounts', 'business studies', 'bst', 'political science', 'pol science', 'sanskrit', 'french', 'german', 'spanish', 'pe', 'physical education'];
     // School-related keywords
-    const keywords = ['exam', 'test', 'practical', 'class', 'quiz', 'akats', 'coaching', 'aakash', 'lecture', 'lesson', 'assignment', 'homework', 'project', 'lab', 'viva'];
+    const keywords = ['exam', 'test', 'practical', 'practicals', 'class', 'quiz', 'coaching', 'aakash', 'akats', 'lecture', 'lesson', 'assignment', 'homework', 'project', 'lab', 'viva', 'ptm', 'assembly', 'sports day', 'annual day', 'farewell', 'bunk', 'period', 'timetable', 'schedule', 'tuition', 'internals', 'internals', 'semester', 'revision', 'pre-board', 'preboard', 'midterm', 'mid-term', 'half yearly', 'annual exam', 'board exam', 'cbse', 'school'];
     
     const hasSubject = subjects.some(s => t.includes(s));
     const hasKeyword = keywords.some(k => t.includes(k));
@@ -865,10 +866,12 @@ Today is ${istDay}, ${istDate} (IST timezone, Asia/Kolkata).
 Note: "${text.replace(/"/g, '\\"')}"
 
 Determine if this is a calendar-worthy event (appointment, class, exam, party, deadline, meeting, trip, anything with a date/time). If it IS calendar-worthy, return JSON:
-{ "isEvent": true, "title": "clean title (e.g. Kriti's Birthday Party)", "date": "YYYY-MM-DD", "startTime": "HH:MM" (24h, or null if no time given), "endTime": "HH:MM" (estimated end, or null), "location": "inferred location or null", "description": "short note about it" }
+{ "isEvent": true, "isSchool": true/false, "title": "clean title (e.g. Kriti's Birthday Party)", "date": "YYYY-MM-DD", "startTime": "HH:MM" (24h, or null if no time given), "endTime": "HH:MM" (estimated end, or null), "location": "inferred location or null", "description": "short note about it" }
 
 If it is NOT calendar-worthy (just a random thought, shopping list, etc.), return JSON:
-{ "isEvent": false, "title": "the note as-is", "date": null, "startTime": null, "endTime": null, "location": null, "description": null }
+{ "isEvent": false, "isSchool": false, "title": "the note as-is", "date": null, "startTime": null, "endTime": null, "location": null, "description": null }
+
+For "isSchool": set to true if the event is school-related: classes, exams, tests, practicals, homework deadlines, coaching, tuition, school assemblies, PTM, sports day, annual day, farewells, lab sessions, quizzes, bunk warnings, or any academic activity. Set to false for personal events: birthdays, dentist, shopping, outings with friends, family events, etc.
 
 Rules:
 - "sunday" means the upcoming Sunday (not past). Same for any weekday.
@@ -937,6 +940,7 @@ Determine what this image contains:
 
 For each event:
 - "date": Use YYYY-MM-DD format. Year is ${CURRENT_YEAR}.
+- "isSchool": Set to true if school-related (classes, exams, tests, practicals, coaching, tuition, school events, academic activities). Set to false for personal events.
 - "sunday", "monday", etc. means the UPCOMING occurrence of that day.
 - "tomorrow" = ${new Date(istNow.getTime() + 86400000).toISOString().slice(0, 10)}
 - If it's a recurring weekly class, set "weekly": true and "dayOfWeek": "Monday"/"Tuesday"/etc
@@ -977,7 +981,8 @@ Return ONLY the JSON object, nothing else.`;
       // Normalize events: ensure each has a 'date' field (map singleDate → date if needed)
       const events = (parsed.events || []).map(e => ({
         ...e,
-        date: e.date || e.singleDate || null
+        date: e.date || e.singleDate || null,
+        isSchool: e.isSchool ?? false
       }));
       
       res.json({ type: parsed.type || 'none', events });

@@ -211,6 +211,11 @@ export class GmailConnector {
       const messages = res.data.messages || [];
       let accepted = 0;
 
+      // Check both personal and school calendars for pending invites
+      const schoolCalendarId = process.env.GCAL_SCHOOL_CALENDAR_ID;
+      const calendarIds = ['primary'];
+      if (schoolCalendarId) calendarIds.push(schoolCalendarId);
+
       for (const msg of messages) {
         try {
           const full = await gmail.users.messages.get({
@@ -233,30 +238,33 @@ export class GmailConnector {
           // Extract the event title from subject (strip "Invite: " prefix etc.)
           const eventTitle = subject.replace(/^(invite|invitation|fwd?:\s*)/i, '').replace(/\s*[-–]\s*.*$/i, '').trim();
 
-          // Try to find and accept this event via Calendar API
+          // Try to find and accept this event on each calendar
           try {
             const cal = google.calendar({ version: 'v3', auth: calendar.oauth2Client });
             const now = new Date();
-            const events = await cal.events.list({
-              calendarId: calendar.calendarId || 'primary',
-              q: eventTitle,
-              timeMin: new Date(now.getTime() - 7 * 86400000).toISOString(),
-              timeMax: new Date(now.getTime() + 30 * 86400000).toISOString(),
-              singleEvents: true,
-              maxResults: 5
-            });
 
-            for (const event of (events.data.items || [])) {
-              const self = (event.attendees || []).find(a => a.self);
-              if (self && self.responseStatus === 'needsAction') {
-                self.responseStatus = 'accepted';
-                await cal.events.patch({
-                  calendarId: calendar.calendarId || 'primary',
-                  eventId: event.id,
-                  requestBody: { attendees: event.attendees }
-                });
-                accepted++;
-                console.log(`[Gmail] Auto-accepted calendar invite: "${event.summary}" from ${from}`);
+            for (const calId of calendarIds) {
+              const events = await cal.events.list({
+                calendarId: calId,
+                q: eventTitle,
+                timeMin: new Date(now.getTime() - 7 * 86400000).toISOString(),
+                timeMax: new Date(now.getTime() + 30 * 86400000).toISOString(),
+                singleEvents: true,
+                maxResults: 5
+              });
+
+              for (const event of (events.data.items || [])) {
+                const self = (event.attendees || []).find(a => a.self);
+                if (self && self.responseStatus === 'needsAction') {
+                  self.responseStatus = 'accepted';
+                  await cal.events.patch({
+                    calendarId: calId,
+                    eventId: event.id,
+                    requestBody: { attendees: event.attendees }
+                  });
+                  accepted++;
+                  console.log(`[Gmail] Auto-accepted calendar invite: "${event.summary}" on ${calId} from ${from}`);
+                }
               }
             }
           } catch (err) {

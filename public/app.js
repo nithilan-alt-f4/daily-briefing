@@ -710,11 +710,13 @@ function renderSmartNotePreview(parsed, originalText) {
     }
     if (parsed.location) details.push(escapeHtml(parsed.location));
     if (parsed.description) details.push(escapeHtml(parsed.description));
+    const targetCal = parsed.isSchool ? 'School calendar' : 'Personal calendar';
 
     preview.innerHTML = `
       <span class="snp-type event">Event</span>
       <p class="snp-title">${escapeHtml(parsed.title)}</p>
       <p class="snp-details">${details.join(' · ')}</p>
+      <p class="snp-details" style="font-size:0.8em;color:var(--muted)">→ ${targetCal}</p>
       <div class="snp-actions">
         <button class="btn" onclick="saveSmartNote()">Add to Calendar</button>
         <button class="btn secondary" onclick="dismissSmartNote()">Dismiss</button>
@@ -749,7 +751,8 @@ async function saveSmartNote() {
         startTime: smartNoteParsed.startTime,
         endTime: smartNoteParsed.endTime,
         weekly: false,
-        dayOfWeek: null
+        dayOfWeek: null,
+        isSchool: smartNoteParsed.isSchool || false
       })
     });
     preview.innerHTML = `
@@ -902,7 +905,8 @@ async function saveSmartNotePhotoEvent(idx) {
         startTime: e.startTime,
         endTime: e.endTime,
         weekly: e.weekly || false,
-        dayOfWeek: e.dayOfWeek || null
+        dayOfWeek: e.dayOfWeek || null,
+        isSchool: e.isSchool || false
       })
     });
     
@@ -951,7 +955,8 @@ async function saveAllSmartNotePhotoEvents() {
           startTime: e.startTime,
           endTime: e.endTime,
           weekly: e.weekly || false,
-          dayOfWeek: e.dayOfWeek || null
+          dayOfWeek: e.dayOfWeek || null,
+          isSchool: e.isSchool || false
         })
       });
       smartNotePhotoEvents[i]._saved = true;
