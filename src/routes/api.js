@@ -52,6 +52,22 @@ function cleanTitle(t) {
   return s.trim();
 }
 
+function groupClasses(classes) {
+  if (!classes.length) return [];
+  const grouped = [];
+  let i = 0;
+  while (i < classes.length) {
+    const name = classes[i];
+    let count = 1;
+    while (i + count < classes.length && classes[i + count] === name) {
+      count++;
+    }
+    grouped.push(count > 1 ? `${name} — Block` : name);
+    i += count;
+  }
+  return grouped;
+}
+
 export function createRoutes({ npsScraper, syncService, summarizer, gmail, calendar, aakash }) {
   // ---- Health / status ----
   router.get('/health', (req, res) => {
@@ -101,20 +117,27 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
       console.log(`[Schedule] Calendars fetched: ${[...new Set(events.map(e => e.calendarName))].join(', ')} (${events.length} events total)`);
 
       // Today's classes: whatever is on any calendar today that isn't an exam/test/practical, birthday, or holiday
-      const classes = events
+      const classesRaw = events
         .filter(e => (e.start || '').slice(0, 10) === todayKey)
         .filter(e => !/exam|test|akats|quiz|practical/i.test(e.title))
         .filter(e => !e.isBirthday)
         .filter(e => !/holiday/i.test(e.calendarName || ''))
+        .sort((a, b) => (a.start || '').localeCompare(b.start || ''))
         .map(e => cleanTitle(e.title));
 
-      // Tomorrow's classes (used when today has none and it's after 5 PM)
-      const tomorrowClasses = events
+      // Group consecutive duplicate classes: ["Math", "Math", "Physics"] → ["Math — Block", "Physics"]
+      const classes = groupClasses(classesRaw);
+
+      // Tomorrow's classes (used when today has none)
+      const tomorrowClassesRaw = events
         .filter(e => (e.start || '').slice(0, 10) === tomorrowKey)
         .filter(e => !/exam|test|akats|quiz|practical/i.test(e.title))
         .filter(e => !e.isBirthday)
         .filter(e => !/holiday/i.test(e.calendarName || ''))
+        .sort((a, b) => (a.start || '').localeCompare(b.start || ''))
         .map(e => cleanTitle(e.title));
+
+      const tomorrowClasses = groupClasses(tomorrowClassesRaw);
 
       // Week's upcoming tests/practicals/exams (all in one list, week-scoped)
       const upcomingTests = events
