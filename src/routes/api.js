@@ -131,16 +131,17 @@ function mapWttrToResult(d) {
 
   // Daily: wttr gives 3 days; build sunrise/sunset from astronomy
   const daily = d.weather.map((day, i) => {
-    const astro = day.astronomy[0];
-    const code = wttrToWmo(day.hourly[4]?.weatherCode || day.hourly[0]?.weatherCode);
-    const maxT = Math.max(...day.hourly.map(h => +h.tempC));
-    const minT = Math.min(...day.hourly.map(h => +h.tempC));
-    const feelsMax = Math.max(...day.hourly.map(h => +h.FeelsLikeC));
-    const feelsMin = Math.min(...day.hourly.map(h => +h.FeelsLikeC));
-    const rainChance = Math.max(...day.hourly.map(h => +h.chanceofrain));
-    const rainSum = day.hourly.reduce((s, h) => s + +h.precipMM, 0);
-    const uvMax = Math.max(...day.hourly.map(h => +h.uvIndex));
-    const windMax = Math.max(...day.hourly.map(h => +h.windspeedKmph));
+    const astro = day.astronomy?.[0] || {};
+    const hs = day.hourly || [];
+    const code = wttrToWmo(hs[4]?.weatherCode || hs[0]?.weatherCode || '116');
+    const maxT = hs.length ? Math.max(...hs.map(h => +h.tempC)) : 0;
+    const minT = hs.length ? Math.min(...hs.map(h => +h.tempC)) : 0;
+    const feelsMax = hs.length ? Math.max(...hs.map(h => +h.FeelsLikeC)) : 0;
+    const feelsMin = hs.length ? Math.min(...hs.map(h => +h.FeelsLikeC)) : 0;
+    const rainChance = Math.max(0, ...hs.map(h => +h.chanceofrain));
+    const rainSum = hs.reduce((s, h) => s + +h.precipMM, 0);
+    const uvMax = Math.max(0, ...hs.map(h => +h.uvIndex));
+    const windMax = Math.max(0, ...hs.map(h => +h.windspeedKmph));
     return {
       date: day.date,
       code,
@@ -168,14 +169,14 @@ function mapWttrToResult(d) {
       humidity: +cur.humidity,
       condition: WMO(wttrToWmo(cur.weatherCode)),
       code: wttrToWmo(cur.weatherCode),
-      isDay: cur.weatherCode === '113' ? true : undefined,
+      isDay: undefined,
       rain: +cur.precipMM,
       cloud: +cur.cloudcover,
       pressure: +cur.pressure,
       wind: +cur.windspeedKmph,
       windDir: cur.winddir16Point,
       windDeg: +cur.winddirDegree,
-      gusts: Math.round(+cur.windspeedKmph * 1.3)
+      gusts: Math.round(+cur.WindGustKmph || +cur.windspeedKmph)
     },
     today: daily[0],
     hourly: next24,

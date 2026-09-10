@@ -274,11 +274,13 @@ export class SyncService {
       if (!d || !d.current) {
         // Open-Meteo 429s Render's shared IP → wttr.in fallback
         const wr = await fetch('https://wttr.in/Yelahanka?format=j1', { signal: AbortSignal.timeout(12000) });
+        if (!wr.ok) throw new Error('wttr.in HTTP ' + wr.status);
         const w = await wr.json();
-        const cur = w.current_condition[0];
+        const cur = w.current_condition?.[0];
+        if (!cur) throw new Error('wttr.in returned no current condition');
         return {
           current: { temp: Math.round(+cur.temp_C), condition: (cur.weatherDesc?.[0]?.value || '').trim() },
-          today: { rainChance: Math.max(...(w.weather[0]?.hourly || []).map(h => +h.chanceofrain)) }
+          today: { rainChance: Math.max(0, ...((w.weather[0]?.hourly || []).map(h => +h.chanceofrain))) }
         };
       }
       return {
