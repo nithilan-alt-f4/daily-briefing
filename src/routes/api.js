@@ -283,7 +283,7 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
       for (let attempt = 1; attempt <= 4; attempt++) {
         try {
           const r = await fetch(url, { signal: AbortSignal.timeout(25000) });
-          if (r.status === 429) throw new Object.assign(new Error('HTTP 429 (rate limited)'), { rateLimit: true });
+          if (r.status === 429) { const e = new Error('HTTP 429 (rate limited)'); e.rateLimit = true; throw e; }
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const json = await r.json();
           if (json.current) { data = json; break; }
