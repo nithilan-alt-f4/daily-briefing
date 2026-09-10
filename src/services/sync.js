@@ -266,8 +266,21 @@ export class SyncService {
       const lat = 13.1007, lon = 77.5963;
       const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon +
         '&current=temperature_2m,weather_code&daily=precipitation_probability_max&timezone=auto&forecast_days=1';
-      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-      const d = await r.json();
+      let d = null;
+      try {
+        const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        if (r.ok) d = await r.json();
+      } catch {}
+      if (!d || !d.current) {
+        // Open-Meteo 429s Render's shared IP → wttr.in fallback
+        const wr = await fetch('https://wttr.in/Yelahanka?format=j1', { signal: AbortSignal.timeout(12000) });
+        const w = await wr.json();
+        const cur = w.current_condition[0];
+        return {
+          current: { temp: Math.round(+cur.temp_C), condition: (cur.weatherDesc?.[0]?.value || '').trim() },
+          today: { rainChance: Math.max(...(w.weather[0]?.hourly || []).map(h => +h.chanceofrain)) }
+        };
+      }
       return {
         current: { temp: Math.round(d.current?.temperature_2m), condition: String(d.current?.weather_code) },
         today: { rainChance: d.daily?.precipitation_probability_max?.[0] }

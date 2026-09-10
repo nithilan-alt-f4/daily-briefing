@@ -327,6 +327,8 @@ export class CalendarConnector {
         const schoolCal = calendars.find(c => /school/i.test(c.summary || ''));
         const primaryCal = calendars.find(c => c.primary === true) || calendars.find(c => !/school/i.test(c.summary || ''));
         if (schoolCal && primaryCal) {
+          const now = new Date();
+          const future = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
           const [schoolEvents, primaryEvents] = await Promise.all([
             calendar.events.list({
               calendarId: schoolCal.id,

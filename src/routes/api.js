@@ -68,6 +68,121 @@ function groupClasses(classes) {
   return grouped;
 }
 
+// wttr.in weatherCode → WMO-like code so the frontend WMO() labels still work
+function wttrToWmo(code) {
+  const c = parseInt(code, 10);
+  if (c === 113) return 0;    // Clear/sunny
+  if (c === 116) return 1;    // Partly cloudy
+  if (c === 119 || c === 122) return 3; // Cloudy/Overcast
+  if (c === 143 || c === 248 || c === 260) return 45; // Fog
+  if (c === 176) return 51;   // Patchy rain nearby → drizzle
+  if (c === 263 || c === 266) return 53; // Light drizzle
+  if (c === 281 || c === 284) return 56; // Freezing drizzle
+  if (c === 293 || c === 296) return 61; // Light rain
+  if (c === 299 || c === 302) return 63; // Rain
+  if (c === 305 || c === 308) return 65; // Heavy rain
+  if (c === 311 || c === 314 || c === 353 || c === 356) return 80; // Showers
+  if (c === 359 || c === 386) return 95; // Thunderstorm
+  return 3;
+}
+
+// Fallback weather source (wttr.in) → same shape as Open-Meteo result
+// Used when Open-Meteo 429s Render's shared IP
+function mapWttrToResult(d) {
+  const WMO = code => ({
+    0: 'Clear sky', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+    45: 'Fog', 48: 'Rime fog', 51: 'Light drizzle', 53: 'Drizzle', 55: 'Heavy drizzle',
+    56: 'Freezing drizzle', 57: 'Freezing drizzle', 61: 'Light rain', 63: 'Rain', 65: 'Heavy rain',
+    66: 'Freezing rain', 67: 'Freezing rain', 71: 'Light snow', 73: 'Snow', 75: 'Heavy snow',
+    77: 'Snow grains', 80: 'Light showers', 81: 'Showers', 82: 'Heavy showers',
+    85: 'Snow showers', 86: 'Snow showers', 95: 'Thunderstorm', 96: 'Storm with hail', 99: 'Storm with hail'
+  })[code] || 'Unknown';
+
+  const cur = d.current_condition[0];
+  const today = d.weather[0];
+
+  // Hourly: wttr gives 3-hour steps ("0", "300", "600"…), today + next days
+  const hourly = [];
+  for (const day of d.weather) {
+    for (const h of day.hourly) {
+      const hh = parseInt(h.time, 10) / 100;
+      const date = day.date; // "2026-09-10"
+      const time = `${date}T${String(hh).padStart(2, '0')}:00`;
+      hourly.push({
+        time,
+        temp: Math.round(+h.tempC),
+        feels: Math.round(+h.FeelsLikeC),
+        humidity: +h.humidity,
+        rainChance: +h.chanceofrain,
+        rain: +h.precipMM,
+        code: wttrToWmo(h.weatherCode),
+        condition: WMO(wttrToWmo(h.weatherCode)),
+        wind: +h.windspeedKmph,
+        gusts: +h.WindGustKmph,
+        uv: +h.uvIndex,
+        visibility: +h.visibility
+      });
+    }
+  }
+  // wttr.in returns local (IST) times — compare against IST wall-clock hour
+  const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const nowIso = istNow.toISOString().slice(0, 13);
+  const next24 = hourly.filter(h => h.time >= nowIso).slice(0, 24);
+
+  // Daily: wttr gives 3 days; build sunrise/sunset from astronomy
+  const daily = d.weather.map((day, i) => {
+    const astro = day.astronomy[0];
+    const code = wttrToWmo(day.hourly[4]?.weatherCode || day.hourly[0]?.weatherCode);
+    const maxT = Math.max(...day.hourly.map(h => +h.tempC));
+    const minT = Math.min(...day.hourly.map(h => +h.tempC));
+    const feelsMax = Math.max(...day.hourly.map(h => +h.FeelsLikeC));
+    const feelsMin = Math.min(...day.hourly.map(h => +h.FeelsLikeC));
+    const rainChance = Math.max(...day.hourly.map(h => +h.chanceofrain));
+    const rainSum = day.hourly.reduce((s, h) => s + +h.precipMM, 0);
+    const uvMax = Math.max(...day.hourly.map(h => +h.uvIndex));
+    const windMax = Math.max(...day.hourly.map(h => +h.windspeedKmph));
+    return {
+      date: day.date,
+      code,
+      condition: WMO(code),
+      max: Math.round(maxT),
+      min: Math.round(minT),
+      feelsMax: Math.round(feelsMax),
+      feelsMin: Math.round(feelsMin),
+      sunrise: `${day.date}T${astro.sunrise}`,
+      sunset: `${day.date}T${astro.sunset}`,
+      uvMax: Math.round(uvMax),
+      rainSum: Math.round(rainSum * 10) / 10,
+      rainChance,
+      windMax
+    };
+  });
+
+  return {
+    source: 'wttr.in',
+    location: 'Yelahanka, Bangalore',
+    updated: new Date().toISOString(),
+    current: {
+      temp: Math.round(+cur.temp_C),
+      feels: Math.round(+cur.FeelsLikeC),
+      humidity: +cur.humidity,
+      condition: WMO(wttrToWmo(cur.weatherCode)),
+      code: wttrToWmo(cur.weatherCode),
+      isDay: cur.weatherCode === '113' ? true : undefined,
+      rain: +cur.precipMM,
+      cloud: +cur.cloudcover,
+      pressure: +cur.pressure,
+      wind: +cur.windspeedKmph,
+      windDir: cur.winddir16Point,
+      windDeg: +cur.winddirDegree,
+      gusts: Math.round(+cur.windspeedKmph * 1.3)
+    },
+    today: daily[0],
+    hourly: next24,
+    daily
+  };
+}
+
 export function createRoutes({ npsScraper, syncService, summarizer, gmail, calendar, aakash }) {
   // ---- Health / status ----
   router.get('/health', (req, res) => {
@@ -277,12 +392,12 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
         '&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_probability_max,wind_speed_10m_max' +
         '&timezone=auto&forecast_days=7';
 
-      // Retry up to 4 times with long exponential backoff for 429 (rate limit)
+      // Quick retries (429s from Render's shared IP are persistent, not transient — no point waiting long)
       let data = null;
       let lastErr = null;
-      for (let attempt = 1; attempt <= 4; attempt++) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-          const r = await fetch(url, { signal: AbortSignal.timeout(25000) });
+          const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
           if (r.status === 429) { const e = new Error('HTTP 429 (rate limited)'); e.rateLimit = true; throw e; }
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const json = await r.json();
@@ -291,13 +406,31 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
         } catch (err) {
           lastErr = err;
           console.error(`[Weather] Attempt ${attempt} failed:`, err.message);
-          // Long backoff for rate limits (10s, 20s, 40s); 3s for transient errors
-          const wait = err.rateLimit ? 10 * 2 ** (attempt - 1) * 1000 : 3000;
-          if (attempt < 4) await new Promise(r => setTimeout(r, wait));
+          // Short waits — the wttr.in fallback below is the real answer for persistent 429s
+          const wait = err.rateLimit ? 1500 : 2000;
+          if (attempt < 2) await new Promise(r => setTimeout(r, wait));
         }
       }
 
       if (!data) {
+        // Open-Meteo rate-limited (Render's shared IP gets 429'd a lot) → fall back to wttr.in
+        console.warn('[Weather] Open-Meteo failed, trying wttr.in fallback…');
+        try {
+          const wr = await fetch('https://wttr.in/Yelahanka?format=j1', { signal: AbortSignal.timeout(15000) });
+          if (wr.ok) {
+            const wjson = await wr.json();
+            const result = mapWttrToResult(wjson);
+            weatherCache.data = result;
+            weatherCache.at = now;
+            global.__weatherCacheData = result;
+            global.__weatherCacheAt = now;
+            console.log('[Weather] Serving from wttr.in fallback');
+            return res.json(result);
+          }
+          throw new Error(`wttr.in HTTP ${wr.status}`);
+        } catch (werr) {
+          console.error('[Weather] wttr.in fallback failed:', werr.message);
+        }
         if (weatherCache.data) return res.json(weatherCache.data);
         throw lastErr || new Error('all weather attempts failed');
       }
@@ -313,8 +446,9 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
 
       const dirName = deg => ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'][Math.round(deg / 22.5) % 16];
 
-      // Next 24h from now
-      const nowIso = new Date().toISOString().slice(0, 13);
+      // Next 24h from now — Open-Meteo returns local (IST) times, so compare against IST wall-clock hour
+      const istNowH = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+      const nowIso = istNowH.toISOString().slice(0, 13);
       const hourly = data.hourly.time.map((t, i) => ({
         time: t,
         temp: Math.round(data.hourly.temperature_2m[i]),
