@@ -96,9 +96,6 @@ export async function generateAndCacheNarrative(summarizer, weather, calendar) {
         !e.isBirthday &&
         !/holiday/i.test(e.calendarName || '');
 
-      // Filter for school calendar events (exclude personal)
-      const isSchoolCal = e => /school/i.test(e.calendarName || '');
-
       if (istHour < 17) {
         // Before 5 PM IST: show today's remaining classes
         const nowTime = istNow.toISOString().slice(11, 16);
