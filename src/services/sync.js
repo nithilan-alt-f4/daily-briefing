@@ -242,7 +242,7 @@ export class SyncService {
     // Refresh cached narrative (with weather)
     try {
       const weather = await this._fetchWeather();
-      await generateAndCacheNarrative(this.summarizer, weather);
+      await generateAndCacheNarrative(this.summarizer, weather, this.calendar);
       console.log('[Sync] Narrative refreshed');
     } catch (err) {
       console.error('[Sync] Narrative generation failed:', err.message);

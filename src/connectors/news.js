@@ -1,12 +1,7 @@
 import { Item } from '../models/Item.js';
 
-const SEARCH_TOPICS = [
-  'Donald Trump',
-  'Narendra Modi',
-  'D.K. Shivakumar',
-  'Joseph Vijay TVK',
-  'Abhijeet Dipke'
-];
+// General India-focused topics for Google News RSS (supplements top-headlines)
+const RSS_TOPICS = ['India', 'world news today', 'technology', 'education India'];
 
 export class NewsConnector {
   constructor(config) {
@@ -14,8 +9,8 @@ export class NewsConnector {
     this.newsApiKey = config.newsApiKey;
   }
 
-  async fetchFromNewsAPI(topic, pageSize = 4) {
-    const url = `https://newsapi.org/v2/everything?q=${encodeURIComponent(topic)}&language=en&sortBy=publishedAt&pageSize=${pageSize}&apiKey=${this.newsApiKey}`;
+  async fetchTopHeadlines(country = 'in', pageSize = 15) {
+    const url = `https://newsapi.org/v2/top-headlines?country=${country}&pageSize=${pageSize}&apiKey=${this.newsApiKey}`;
     const res = await fetch(url);
     const data = await res.json();
     if (data.status !== 'ok') throw new Error(`NewsAPI: ${data.message || 'unknown error'}`);
@@ -26,7 +21,7 @@ export class NewsConnector {
       source: a.source?.name || '',
       url: a.url,
       publishedAt: a.publishedAt,
-      topic
+      topic: 'top-headlines'
     }));
   }
 
@@ -93,15 +88,22 @@ export class NewsConnector {
     await Item.deleteMany({ source: 'news', createdAt: { $lt: today } });
 
     let articles = [];
-    for (const topic of SEARCH_TOPICS) {
+
+    // General Indian top-headlines (main source)
+    try {
+      const headlines = await this.fetchTopHeadlines('in', 15);
+      articles.push(...headlines);
+    } catch (err) {
+      console.error(`[News] Top-headlines failed:`, err.message);
+    }
+
+    // Google News RSS for broader topics
+    for (const topic of RSS_TOPICS) {
       try {
-        const [api, rss] = await Promise.all([
-          this.fetchFromNewsAPI(topic),
-          this.fetchFromGoogleNewsRSS(topic)
-        ]);
-        articles.push(...api, ...rss);
+        const rss = await this.fetchFromGoogleNewsRSS(topic, 3);
+        articles.push(...rss);
       } catch (err) {
-        console.error(`[News] "${topic}" failed:`, err.message);
+        console.error(`[News] RSS "${topic}" failed:`, err.message);
       }
     }
 

@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { Token } from '../models/Token.js';
+import { isSchoolRelated } from '../utils/isSchoolRelated.js';
 
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 
@@ -196,6 +197,7 @@ export class GmailConnector {
   }
 
   // Detect calendar invitation emails and auto-accept them via Calendar API
+  // School-related events are moved to the school calendar automatically
   async autoAcceptCalendarInvites(calendar) {
     if (!this.isConnected() || !calendar?.isConnected()) return { accepted: 0 };
     try {
@@ -211,10 +213,7 @@ export class GmailConnector {
       const messages = res.data.messages || [];
       let accepted = 0;
 
-      // Check both personal and school calendars for pending invites
       const schoolCalendarId = process.env.GCAL_SCHOOL_CALENDAR_ID;
-      const calendarIds = ['primary'];
-      if (schoolCalendarId) calendarIds.push(schoolCalendarId);
 
       for (const msg of messages) {
         try {
@@ -238,32 +237,58 @@ export class GmailConnector {
           // Extract the event title from subject (strip "Invite: " prefix etc.)
           const eventTitle = subject.replace(/^(invite|invitation|fwd?:\s*)/i, '').replace(/\s*[-–]\s*.*$/i, '').trim();
 
-          // Try to find and accept this event on each calendar
+          // Search for matching events on primary calendar
           try {
             const cal = google.calendar({ version: 'v3', auth: calendar.oauth2Client });
             const now = new Date();
 
-            for (const calId of calendarIds) {
-              const events = await cal.events.list({
-                calendarId: calId,
-                q: eventTitle,
-                timeMin: new Date(now.getTime() - 7 * 86400000).toISOString(),
-                timeMax: new Date(now.getTime() + 30 * 86400000).toISOString(),
-                singleEvents: true,
-                maxResults: 5
-              });
+            const events = await cal.events.list({
+              calendarId: 'primary',
+              q: eventTitle,
+              timeMin: new Date(now.getTime() - 7 * 86400000).toISOString(),
+              timeMax: new Date(now.getTime() + 30 * 86400000).toISOString(),
+              singleEvents: true,
+              maxResults: 5
+            });
 
-              for (const event of (events.data.items || [])) {
-                const self = (event.attendees || []).find(a => a.self);
-                if (self && self.responseStatus === 'needsAction') {
-                  self.responseStatus = 'accepted';
-                  await cal.events.patch({
-                    calendarId: calId,
-                    eventId: event.id,
-                    requestBody: { attendees: event.attendees }
-                  });
-                  accepted++;
-                  console.log(`[Gmail] Auto-accepted calendar invite: "${event.summary}" on ${calId} from ${from}`);
+            for (const event of (events.data.items || [])) {
+              const self = (event.attendees || []).find(a => a.self);
+              if (self && self.responseStatus === 'needsAction') {
+                // Accept the invite on primary
+                self.responseStatus = 'accepted';
+                await cal.events.patch({
+                  calendarId: 'primary',
+                  eventId: event.id,
+                  requestBody: { attendees: event.attendees }
+                });
+                accepted++;
+                console.log(`[Gmail] Auto-accepted calendar invite: "${event.summary}" from ${from}`);
+
+                // If school-related and school calendar exists, move it there
+                if (schoolCalendarId && isSchoolRelated(event.summary || eventTitle)) {
+                  try {
+                    // Copy to school calendar (without attendees to avoid double-notifications)
+                    await cal.events.insert({
+                      calendarId: schoolCalendarId,
+                      requestBody: {
+                        summary: event.summary,
+                        description: event.description || '',
+                        location: event.location || '',
+                        start: event.start,
+                        end: event.end,
+                        recurrence: event.recurrence,
+                        transparency: event.transparency
+                      }
+                    });
+                    // Delete from primary
+                    await cal.events.delete({
+                      calendarId: 'primary',
+                      eventId: event.id
+                    });
+                    console.log(`[Gmail] Moved "${event.summary}" from primary → school calendar`);
+                  } catch (moveErr) {
+                    console.error(`[Gmail] Failed to move "${event.summary}" to school calendar:`, moveErr.message);
+                  }
                 }
               }
             }

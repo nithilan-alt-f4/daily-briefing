@@ -71,11 +71,30 @@ export async function buildBriefing(summarizer) {
   return data;
 }
 
-// Called during sync: generate and cache the narrative (weather included)
-export async function generateAndCacheNarrative(summarizer, weather) {
+// Called during sync: generate and cache the narrative (weather + classes included)
+export async function generateAndCacheNarrative(summarizer, weather, calendar) {
   const now = new Date();
   const todayStart = new Date(now);
   todayStart.setHours(0, 0, 0, 0);
+
+  const todayEnd = new Date(now);
+  todayEnd.setHours(23, 59, 59, 999);
+
+  // Fetch today's classes from Google Calendar
+  let classes = [];
+  if (calendar?.isConnected()) {
+    try {
+      const events = await calendar.fetchEventsInRange(todayStart, todayEnd, 50);
+      classes = events
+        .filter(e => (e.start || '').slice(0, 10) === now.toISOString().slice(0, 10))
+        .filter(e => !/exam|test|akats|quiz|practical/i.test(e.title))
+        .filter(e => !e.isBirthday)
+        .filter(e => !/holiday/i.test(e.calendarName || ''))
+        .map(e => e.title);
+    } catch (err) {
+      console.error('[Briefing] Failed to fetch classes for narrative:', err.message);
+    }
+  }
 
   const [notifications, emails, news, events] = await Promise.all([
     Item.find({ type: 'notification', postedDate: { $gte: todayStart } }).limit(6).lean(),
@@ -88,6 +107,7 @@ export async function generateAndCacheNarrative(summarizer, weather) {
 
   const text = await summarizer.generateBriefingNarrative({
     weather: weatherLine,
+    classes: classes.length ? classes : [],
     // Full notification text so instructions (dress code, timings, what to bring) are visible
     todaySchoolNotifications: notifications.map(n => `${n.title}: ${(n.content || '').substring(0, 300)}`),
     recentEmails: emails.map(e => e.title),

@@ -184,7 +184,7 @@ function mapWttrToResult(d) {
   };
 }
 
-export function createRoutes({ npsScraper, syncService, summarizer, gmail, calendar, aakash }) {
+export function createRoutes({ npsScraper, syncService, summarizer, gmail, calendar }) {
   // ---- Health / status ----
   router.get('/health', (req, res) => {
     const problems = validateConfig();
@@ -202,7 +202,7 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
       summarizer: summarizer.enabled ? 'enabled' : 'disabled',
       lastSync: syncService.lastSync,
       lastSyncResult: syncService.lastResult,
-      aakash: aakash.status()
+      aakash: { enabled: false }
     });
   });
 
@@ -857,17 +857,6 @@ export function createRoutes({ npsScraper, syncService, summarizer, gmail, calen
   // ---- Logs ----
   router.get('/logs', (req, res) => {
     res.json({ logs: getLogs(parseInt(req.query.n || '200', 10)) });
-  });
-
-  // ---- Aakash WhatsApp -> School calendar sync ----
-  router.post('/aakash/sync', async (req, res) => {
-    // Fire-and-forget spawn; respond immediately with started status
-    const result = await aakash.run({ cause: 'manual-debug' });
-    res.json(result);
-  });
-
-  router.get('/aakash/status', (req, res) => {
-    res.json(aakash.status());
   });
 
   // ---- Manual calendar event add ----

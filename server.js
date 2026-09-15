@@ -13,7 +13,6 @@ import { NewsConnector } from './src/connectors/news.js';
 import { CalendarConnector } from './src/connectors/calendar.js';
 import { SyncService } from './src/services/sync.js';
 import { Summarizer } from './src/services/summarizer.js';
-import { AakashSync } from './src/aakash.js';
 import { createRoutes } from './src/routes/api.js';
 import { migrateTokensToMongoDB } from './src/utils/migrateTokens.js';
 
@@ -55,9 +54,8 @@ const calendar = new CalendarConnector({
   redirectUri: process.env.GCAL_REDIRECT_URI || `http://localhost:${config.port}/api/calendar/callback`
 });
 const syncService = new SyncService({ npsScraper, summarizer, gmail, news, calendar });
-const aakash = new AakashSync();
 
-app.use('/api', createRoutes({ npsScraper, syncService, summarizer, gmail, calendar, aakash }));
+app.use('/api', createRoutes({ npsScraper, syncService, summarizer, gmail, calendar }));
 
 const problems = validateConfig();
 if (problems.length > 0) {
@@ -88,19 +86,7 @@ mkdirSync(join(__dirname, 'media'), { recursive: true });
 cron.schedule('0 7 * * *', () => safeSync('morning cron'));
 cron.schedule('0 13 * * *', () => safeSync('afternoon cron'));
 
-// Aakash WhatsApp -> School calendar sync every midnight
-cron.schedule('0 0 * * *', () => safeAakashSync('midnight cron'));
-
 // Note: startup sync moved to after DB connection and token loading
-
-async function safeAakashSync(cause) {
-  try {
-    const result = await aakash.run({ cause });
-    console.log(`[Aakash] ${cause} ->`, JSON.stringify({ running: result.running, success: result.success, needsReauth: result.needsReauth, exit: result.exit, skipped: result.skipped }));
-  } catch (err) {
-    console.error(`[Aakash] ${cause} failed:`, err.message);
-  }
-}
 
 async function safeSync(cause) {
   if (syncService.running) return;

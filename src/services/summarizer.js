@@ -88,6 +88,7 @@ export class Summarizer {
         `You are writing a daily briefing addressed directly to a school student (the user). ` +
         `Write a short natural paragraph (4-5 sentences) telling them what matters today. Rules:\n` +
         `- Use "you" and "your". Never mention parents\n` +
+        `- Start by listing today's classes if available (e.g. "You have Math, Physics, and English today.")\n` +
         `- IMPORTANT: if a school notification contains instructions (what to wear, what to bring, timings, deadlines), state them explicitly, e.g. "Wear your sports uniform on Friday"\n` +
         `- Mention the weather and whether they need an umbrella\n` +
         `- Use **double asterisks** around the 1-3 most important words or instructions (they render bold)\n` +
