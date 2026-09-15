@@ -74,23 +74,50 @@ export async function buildBriefing(summarizer) {
 // Called during sync: generate and cache the narrative (weather + classes included)
 export async function generateAndCacheNarrative(summarizer, weather, calendar) {
   const now = new Date();
+
+  // Use IST for time-aware class display
+  const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  const istHour = istNow.getUTCHours();
+  const todayKey = istNow.toISOString().slice(0, 10);
+  const tomorrowKey = new Date(istNow.getTime() + 86400000).toISOString().slice(0, 10);
+
   const todayStart = new Date(now);
   todayStart.setHours(0, 0, 0, 0);
+  const weekEnd = new Date(now.getTime() + 7 * 86400000);
 
-  const todayEnd = new Date(now);
-  todayEnd.setHours(23, 59, 59, 999);
-
-  // Fetch today's classes from Google Calendar
+  // Fetch calendar events for the narrative
   let classes = [];
+  let classesLabel = '';
   if (calendar?.isConnected()) {
     try {
-      const events = await calendar.fetchEventsInRange(todayStart, todayEnd, 50);
-      classes = events
-        .filter(e => (e.start || '').slice(0, 10) === now.toISOString().slice(0, 10))
-        .filter(e => !/exam|test|akats|quiz|practical/i.test(e.title))
-        .filter(e => !e.isBirthday)
-        .filter(e => !/holiday/i.test(e.calendarName || ''))
-        .map(e => e.title);
+      const events = await calendar.fetchEventsInRange(todayStart, weekEnd, 100);
+      const classFilter = e =>
+        !/exam|test|akats|quiz|practical/i.test(e.title) &&
+        !e.isBirthday &&
+        !/holiday/i.test(e.calendarName || '');
+
+      // Filter for school calendar events (exclude personal)
+      const isSchoolCal = e => /school/i.test(e.calendarName || '');
+
+      if (istHour < 17) {
+        // Before 5 PM IST: show today's remaining classes
+        const nowTime = istNow.toISOString().slice(11, 16);
+        classes = events
+          .filter(e => (e.start || '').slice(0, 10) === todayKey)
+          .filter(classFilter)
+          .filter(e => (e.start || '').slice(11, 16) >= nowTime)
+          .sort((a, b) => (a.start || '').localeCompare(b.start || ''))
+          .map(e => e.title);
+        classesLabel = 'Remaining today';
+      } else {
+        // After 5 PM IST: show tomorrow's classes
+        classes = events
+          .filter(e => (e.start || '').slice(0, 10) === tomorrowKey)
+          .filter(classFilter)
+          .sort((a, b) => (a.start || '').localeCompare(b.start || ''))
+          .map(e => e.title);
+        classesLabel = 'Tomorrow';
+      }
     } catch (err) {
       console.error('[Briefing] Failed to fetch classes for narrative:', err.message);
     }
@@ -108,6 +135,7 @@ export async function generateAndCacheNarrative(summarizer, weather, calendar) {
   const text = await summarizer.generateBriefingNarrative({
     weather: weatherLine,
     classes: classes.length ? classes : [],
+    classesLabel,
     // Full notification text so instructions (dress code, timings, what to bring) are visible
     todaySchoolNotifications: notifications.map(n => `${n.title}: ${(n.content || '').substring(0, 300)}`),
     recentEmails: emails.map(e => e.title),
