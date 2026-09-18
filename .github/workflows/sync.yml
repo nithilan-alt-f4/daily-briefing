@@ -4,7 +4,29 @@ on:
   schedule:
     # Every 6 hours: 6am, 12pm, 6pm, 12am IST (0:30, 6:30, 12:30, 18:30 UTC)
     - cron: '30 0,6,12,18 * * *'
-  workflow_dispatch: # Manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      event_title:
+        description: 'Calendar event title (optional — creates an event)'
+        required: false
+        type: string
+      event_date:
+        description: 'Event date (YYYY-MM-DD)'
+        required: false
+        type: string
+      event_start:
+        description: 'Event start time (HH:MM, 24h IST)'
+        required: false
+        type: string
+      event_end:
+        description: 'Event end time (HH:MM, 24h IST)'
+        required: false
+        type: string
+      event_is_school:
+        description: 'Is this a school event? (true/false)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   sync:
@@ -14,6 +36,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -44,5 +68,25 @@ jobs:
           GCAL_CLIENT_SECRET: ${{ secrets.GCAL_CLIENT_SECRET }}
           GCAL_CALENDAR_ID: ${{ secrets.GCAL_CALENDAR_ID }}
           GCAL_REDIRECT_URI: ${{ secrets.GCAL_REDIRECT_URI }}
+          EVENT_TITLE: ${{ inputs.event_title }}
+          EVENT_DATE: ${{ inputs.event_date }}
+          EVENT_START: ${{ inputs.event_start }}
+          EVENT_END: ${{ inputs.event_end }}
+          EVENT_IS_SCHOOL: ${{ inputs.event_is_school }}
           PLAYWRIGHT_BROWSERS_PATH: 0
         timeout-minutes: 10
+
+      - name: Push data to data branch
+        run: |
+          if [ ! -f /tmp/briefing-data.json ]; then
+            echo "No briefing-data.json exported — skipping data branch push"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan data
+          git rm -rf . --quiet 2>/dev/null || true
+          cp /tmp/briefing-data.json ./briefing-data.json
+          git add briefing-data.json
+          git commit -m "data: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          git push origin data --force

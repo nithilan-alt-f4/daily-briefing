@@ -1,3 +1,14 @@
+/**
+ * app.js — Phase 4: Client-only Daily Briefing.
+ * No server needed. Data comes from:
+ *   - DataAPI (NPS + Gmail data via GitHub JSON export)
+ *   - WeatherAPI (Open-Meteo / wttr.in)
+ *   - NewsAPI (NewsAPI + Google News RSS)
+ *   - CalendarAPI (Google Calendar REST API)
+ *   - NarrativeAPI (Groq / Gemini on-device)
+ *   - NotesAPI (localStorage)
+ */
+
 const $ = sel => document.querySelector(sel);
 const $$ = sel => document.querySelectorAll(sel);
 
@@ -27,51 +38,16 @@ function dayLabel(dateStr) {
   return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
-// ---------- Native + local cache ----------
-// SyncWorker writes JSON files to app's internal files/cache/.
-// We try to read them via Capacitor Filesystem; fall back to localStorage.
-async function readNativeCache(name) {
-  // Try Capacitor Filesystem (native cache written by SyncWorker)
-  try {
-    if (window.Capacitor?.Plugins?.Filesystem) {
-      const result = await window.Capacitor.Plugins.Filesystem.readFile({
-        path: `cache/${name}`,
-        directory: 'DATA'
-      });
-      const raw = typeof result.data === 'string' ? result.data : (result.data || result);
-      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      if (parsed?.data) return parsed; // { data: ..., savedAt: ... }
-    }
-  } catch {}
-  // Fallback to localStorage cache
-  try {
-    const raw = localStorage.getItem(`__cache_${name}`);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return null;
+function istNow() {
+  return new Date(Date.now() + 5.5 * 60 * 60 * 1000);
 }
 
-function writeLocalCache(name, data) {
-  try {
-    localStorage.setItem(`__cache_${name}`, JSON.stringify({
-      data,
-      savedAt: Date.now()
-    }));
-  } catch {}
+function istTodayKey() {
+  return istNow().toISOString().slice(0, 10);
 }
 
-function cacheAgeText(savedAt) {
-  if (!savedAt) return '';
-  const mins = Math.round((Date.now() - savedAt) / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  return `${hrs}h ago`;
-}
-
-function updateCacheAge(text) {
-  const el = $('#cache-age');
-  if (el) el.textContent = text ? `updated ${text}` : '';
+function istTomorrowKey() {
+  return new Date(istNow().getTime() + 86400000).toISOString().slice(0, 10);
 }
 
 // ---------- Rich text: **bold** + [[News:/Mail:]] jump links ----------
@@ -113,17 +89,7 @@ function jumpTo(kind, id) {
     }
   }, 350);
 }
-
-async function api(path, opts) {
-  const res = await fetch(path, opts);
-  let body;
-  try { body = await res.json(); } catch { body = await res.text(); }
-  if (!res.ok) {
-    const msg = typeof body === 'string' ? body : JSON.stringify(body, null, 2);
-    throw new Error(`HTTP ${res.status}: ${msg}`);
-  }
-  return body;
-}
+window.jumpTo = jumpTo;
 
 // ---------- Tabs ----------
 function switchTab(name) {
@@ -151,6 +117,45 @@ function setDateline() {
   });
 }
 
+function updateCacheAge(text) {
+  const el = $('#cache-age');
+  if (el) el.textContent = text ? `updated ${text}` : '';
+}
+
+function cacheAgeText(savedAt) {
+  if (!savedAt) return '';
+  const mins = Math.round((Date.now() - savedAt) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  return `${hrs}h ago`;
+}
+
+// ---------- School-related helpers ----------
+
+function cleanTitle(title) {
+  return (title || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
+}
+
+function groupClasses(classes) {
+  const grouped = [];
+  let i = 0;
+  while (i < classes.length) {
+    const name = classes[i];
+    let count = 1;
+    while (i + count < classes.length && classes[i + count] === name) count++;
+    grouped.push(count > 1 ? `${name} — Block` : name);
+    i += count;
+  }
+  return grouped;
+}
+
+const CLASS_EXCLUDE = /exam|test|akats|quiz|practical/i;
+
+function isClassEvent(e) {
+  return !CLASS_EXCLUDE.test(e.title) && !e.isBirthday && !/holiday/i.test(e.calendarName || '');
+}
+
 // ---------- Classes + exam strip + Saturday ----------
 function renderSchedule(sched) {
   const classes = (sched.classes && sched.classes.length) ? sched.classes : [];
@@ -163,19 +168,18 @@ function renderSchedule(sched) {
       `<div class="class-card"><span class="class-name">${escapeHtml(c)}</span></div>`
     ).join('');
   } else if (sched.classesPlaceholder) {
-    // No classes on calendar — show add buttons
     $('#classes-body').innerHTML = `
       <p class="class-empty">No classes on the calendar yet.</p>
       <div style="display:flex;gap:8px;margin-top:0.6rem">
-        <a href="/debug.html" class="btn" style="flex:1;text-align:center;text-decoration:none">Add timetable photo</a>
-        <a href="/debug.html" class="btn ghost" style="flex:1;text-align:center;text-decoration:none">Enter manually</a>
+        <a href="debug.html" class="btn" style="flex:1;text-align:center;text-decoration:none">Add timetable photo</a>
+        <a href="debug.html" class="btn ghost" style="flex:1;text-align:center;text-decoration:none">Enter manually</a>
       </div>
     `;
   } else {
     $('#classes-body').innerHTML = '<p class="class-empty">No classes today.</p>';
   }
 
-  // Week's upcoming tests/practicals/exams (all-in-one list)
+  // Upcoming tests/practicals/exams
   const upcomingTests = sched.upcomingTests || [];
   if (upcomingTests.length > 0) {
     const testsHtml = upcomingTests.map(t => {
@@ -210,7 +214,7 @@ function renderSchedule(sched) {
 // ---------- Weather strip ----------
 async function loadWeatherStrip() {
   try {
-    const w = await api('/api/weather');
+    const w = await WeatherAPI.fetch();
     if (w.error) { $('#w-cond').textContent = 'unavailable'; return; }
     $('#w-temp').textContent = `${w.current.temp}°`;
     $('#w-cond').textContent = w.current.condition;
@@ -251,6 +255,7 @@ function circularStory(c) {
     </article>`;
 }
 
+// ---------- Briefing render ----------
 function renderBriefing(b) {
   const assignments = b.assignments || [];
   const notifs = b.notifications || [];
@@ -264,7 +269,7 @@ function renderBriefing(b) {
   emails.forEach(e => itemRegistry.add('emails', e.id, e.title));
 
   const narr = $('#sec-narrative');
-  const today = new Date().toISOString().slice(0, 10);
+  const today = istTodayKey();
   const todaysNotifs = notifs.filter(n => (n.postedDate || '').slice(0, 10) === today);
   const shown = todaysNotifs.length ? todaysNotifs : notifs.slice(0, 2);
 
@@ -279,7 +284,7 @@ function renderBriefing(b) {
     ? shown.slice(0, 3).map(n => wrapSwipe(notificationStory(n))).join('')
     : '<p class="empty-note">No notifications today. Older ones are in the School tab.</p>';
 
-  // School tab accordions: everything
+  // School tab: everything
   $('#list-notifications-full').innerHTML = notifs.length
     ? notifs.map(n => wrapSwipe(notificationStory(n))).join('')
     : '<p class="empty-note">No notifications.</p>';
@@ -338,7 +343,7 @@ function wrapSwipeInner(html, id) {
   `;
 }
 
-// ---------- Swipe to delete (touch + mouse) ----------
+// ---------- Swipe to delete ----------
 function initSwipe() {
   $$('.swipe-wrap').forEach(wrap => {
     const content = wrap.querySelector('.swipe-content');
@@ -395,7 +400,7 @@ async function swipeDelete(id, wrapEl) {
   wrapEl = wrapEl || document.querySelector(`.swipe-wrap[data-del-id="${id}"]`);
   if (!wrapEl) return;
   try {
-    await api(`/api/items/${id}`, { method: 'DELETE' });
+    DataAPI.deleteItemFromCache(id);
     wrapEl.classList.add('removing');
     setTimeout(() => {
       wrapEl.remove();
@@ -417,14 +422,36 @@ const CAL_LIST_INITIAL = 3;
 
 async function loadMonth() {
   try {
-    const m = await api('/api/calendar/month');
-    monthEvents = m.events || [];
+    const today = new Date();
+    const monthEnd = new Date(today.getTime() + 60 * 86400000);
+    const schoolCal = await DataAPI.getSchoolCalendar();
+
+    // Try CalendarAPI if connected, otherwise just school calendar data
+    let calEvents = [];
+    if (CalendarAPI.isConnected()) {
+      const raw = await CalendarAPI.fetchEventsInRange(today, monthEnd, 100);
+      calEvents = raw.map(e => ({
+        title: e.title,
+        date: e.start,
+        kind: /school/i.test(e.calendarName || '') ? 'school' : 'personal',
+        location: e.location,
+        isAllDay: e.isAllDay
+      }));
+    }
+
+    // Add school calendar items (holidays, exams from NPS portal)
+    const schoolItems = schoolCal.map(e => ({
+      title: e.title,
+      date: e.metadata?.startDate || (e.postedDate || '').slice(0, 10),
+      kind: /exam|test/i.test(e.title) ? 'exam' : 'holiday',
+      location: null,
+      isAllDay: true
+    }));
+
+    monthEvents = [...calEvents, ...schoolItems];
     calListExpanded = false;
     renderCalendar();
-    // Auto-show today's events (IST)
-    const now = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
-    const todayKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
-    selectDay(todayKey);
+    selectDay(istTodayKey());
   } catch (err) {
     $('#cal-grid').innerHTML = `<p class="empty-note">Calendar unavailable: ${escapeHtml(err.message)}</p>`;
   }
@@ -459,22 +486,11 @@ function renderCalendar() {
   }
   $('#cal-grid').innerHTML = html;
 
-  // Event list below — holidays, birthdays, exams, AND personal events (Aakash/coaching etc). No classes.
+  // Event list — holidays, birthdays, exams, AND personal events. No classes.
   const calKinds = new Set(['holiday', 'birthday', 'exam', 'personal']);
   const listEvents = monthEvents.filter(e => calKinds.has(e.kind));
   const total = listEvents.length;
   const visible = calListExpanded ? listEvents : listEvents.slice(0, CAL_LIST_INITIAL);
-  const orderLabel = e => {
-    if (e.order != null) return `P${e.order}`;
-    if (e.date && e.date.includes('T')) {
-      const h = parseInt(e.date.slice(11, 13), 10);
-      const m = e.date.slice(14, 16);
-      const ampm = h >= 12 ? 'pm' : 'am';
-      const h12 = h % 12 || 12;
-      return `${h12}:${m}${ampm}`;
-    }
-    return '';
-  };
   $('#cal-list').innerHTML = total
     ? visible.map(e => `
         <div class="rail-item">
@@ -493,16 +509,13 @@ function renderCalendar() {
 function selectDay(key) {
   selectedDay = key;
   renderCalendar();
-  // Show ALL events for that day (including classes)
   const evs = monthEvents.filter(e => (e.date || '').slice(0, 10) === key);
   const orderLabel = e => {
-    if (e.order != null) return `P${e.order}`;
     if (e.date && e.date.includes('T')) {
       const h = parseInt(e.date.slice(11, 13), 10);
       const m = e.date.slice(14, 16);
       const ampm = h >= 12 ? 'pm' : 'am';
-      const h12 = h % 12 || 12;
-      return `${h12}:${m}${ampm}`;
+      return `${h % 12 || 12}:${m}${ampm}`;
     }
     return '';
   };
@@ -552,7 +565,6 @@ function initPullToRefresh() {
     distance = e.touches[0].clientY - startY;
     if (distance > 0 && window.scrollY <= 2) {
       const clamped = Math.min(distance * 0.5, 100);
-      // Push the whole page down; indicator sits in the revealed space
       paper.style.transform = `translateY(${clamped}px)`;
       ptr.style.transform = `translateY(${Math.max(0, clamped)}px)`;
       ptr.querySelector('.ptr-label').textContent = distance > THRESHOLD * 2 ? 'Release to sync' : 'Pull to refresh';
@@ -566,12 +578,12 @@ function initPullToRefresh() {
     if (distance > THRESHOLD) {
       ptr.classList.add('loading');
       ptr.querySelector('.ptr-label').textContent = 'Syncing…';
-      toast('Syncing school, mail and news…');
+      toast('Syncing from GitHub…');
       try {
-        await api('/api/sync/all', { method: 'POST' });
+        await DataAPI.refreshBriefingData();
         toast('Sync complete');
       } catch (err) {
-        toast('Sync failed');
+        toast('Sync failed: ' + (err.message || ''));
       }
       ptr.classList.remove('loading');
       await loadAll();
@@ -589,12 +601,12 @@ let weatherLoaded = false;
 async function loadWeatherFull() {
   const el = $('#weather-full');
   try {
-    const w = await api('/api/weather');
+    const w = await WeatherAPI.fetch();
     if (w.error) { el.innerHTML = '<p class="empty-note">Weather unavailable.</p>'; return; }
 
     const c = w.current;
     const hours = w.hourly || [];
-    const nowHour = new Date().toISOString().slice(0, 13);
+    const nowHour = istNow().toISOString().slice(0, 13);
 
     el.innerHTML = `
       <div class="wx-hero">
@@ -604,7 +616,7 @@ async function loadWeatherFull() {
       </div>
       <div class="wx-grid">
         <div class="wx-cell"><span class="lbl">Humidity</span><span class="val">${c.humidity}%</span></div>
-        <div class="wx-cell"><span class="lbl">Wind</span><span class="val">${c.wind} ${c.windDir}</span></div>
+        <div class="wx-cell"><span class="lbl">Wind</span><span class="val">${c.wind} ${c.windDir || ''}</span></div>
         <div class="wx-cell"><span class="lbl">Gusts</span><span class="val">${c.gusts}</span></div>
         <div class="wx-cell"><span class="lbl">Pressure</span><span class="val">${c.pressure}</span></div>
         <div class="wx-cell"><span class="lbl">Cloud</span><span class="val">${c.cloud}%</span></div>
@@ -644,17 +656,6 @@ async function loadWeatherFull() {
   }
 }
 
-// ---------- Upcoming (unused now but kept for month view fallback) ----------
-function railUpcoming(events) {
-  $('#list-upcoming') && ($('#list-upcoming').innerHTML = events.length
-    ? events.map(e => `
-        <div class="rail-item">
-          <p class="rail-title"><span class="kind-badge ${e.kind}">${e.kind}</span>${escapeHtml(e.title)}</p>
-          <p class="rail-sub">${fmtDate(e.date)}</p>
-        </div>`).join('')
-    : '');
-}
-
 // ---------- Smart Note ----------
 let smartNoteParsed = null;
 
@@ -664,7 +665,6 @@ async function submitSmartNote() {
   const text = (input.value || '').trim();
   if (!text) return;
 
-  // Disable button while processing
   const goBtn = $('#smart-note-go');
   goBtn.disabled = true;
   goBtn.textContent = '…';
@@ -672,11 +672,7 @@ async function submitSmartNote() {
   preview.innerHTML = '<p class="empty-note">Thinking…</p>';
 
   try {
-    const parsed = await api('/api/notes/parse', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text })
-    });
+    const parsed = await NarrativeAPI.parseSmartNote(text);
     smartNoteParsed = parsed;
     renderSmartNotePreview(parsed, text);
   } catch (err) {
@@ -688,13 +684,12 @@ async function submitSmartNote() {
 }
 window.submitSmartNote = submitSmartNote;
 
-// Handle Enter key on the input
 document.addEventListener('DOMContentLoaded', () => {
   const input = $('#smart-note-input');
   if (input) input.addEventListener('keydown', e => { if (e.key === 'Enter') submitSmartNote(); });
 });
 
-function renderSmartNotePreview(parsed, originalText) {
+function renderSmartNotePreview(parsed) {
   const preview = $('#smart-note-preview');
   if (parsed.isEvent) {
     const details = [];
@@ -705,8 +700,7 @@ function renderSmartNotePreview(parsed, originalText) {
     if (parsed.startTime) {
       const [h, m] = parsed.startTime.split(':');
       const ampm = parseInt(h) >= 12 ? 'pm' : 'am';
-      const h12 = parseInt(h) % 12 || 12;
-      details.push(`${h12}:${m} ${ampm}`);
+      details.push(`${parseInt(h) % 12 || 12}:${m} ${ampm}`);
     }
     if (parsed.location) details.push(escapeHtml(parsed.location));
     if (parsed.description) details.push(escapeHtml(parsed.description));
@@ -742,27 +736,61 @@ async function saveSmartNote() {
   goBtn.textContent = '…';
 
   try {
-    const r = await api('/api/calendar/add', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: smartNoteParsed.title,
-        date: smartNoteParsed.date,
-        startTime: smartNoteParsed.startTime,
-        endTime: smartNoteParsed.endTime,
-        weekly: false,
-        dayOfWeek: null,
-        isSchool: smartNoteParsed.isSchool || false
-      })
-    });
-    preview.innerHTML = `
-      <span class="snp-type event">Added</span>
-      <p class="snp-title">${escapeHtml(smartNoteParsed.title)}</p>
-      <p class="snp-details">Saved to <a href="${r.link}" target="_blank" style="color:var(--accent)">Google Calendar</a></p>
-    `;
+    if (!CalendarAPI.isConnected()) {
+      throw new Error('Google Calendar not connected. Please sign in first.');
+    }
+
+    const tz = 'Asia/Kolkata';
+    const { title, date, startTime, endTime, isSchool } = smartNoteParsed;
+    const body = { summary: title, description: 'Added via Daily Briefing' };
+
+    if (startTime) {
+      const [sh, sm] = startTime.split(':').map(Number);
+      const [eh, em] = (endTime || `${sh + 1}:${String(sm).padStart(2, '0')}`).split(':').map(Number);
+      const pad = n => String(n).padStart(2, '0');
+      let endDate = date;
+      if (eh < sh || (eh === sh && em <= sm)) {
+        const nd = new Date(date + 'T00:00:00+05:30');
+        nd.setDate(nd.getDate() + 1);
+        endDate = nd.toISOString().slice(0, 10);
+      }
+      body.start = { dateTime: `${date}T${pad(sh)}:${pad(sm)}:00+05:30`, timeZone: tz };
+      body.end = { dateTime: `${endDate}T${pad(eh)}:${pad(em)}:00+05:30`, timeZone: tz };
+    } else {
+      body.start = { date };
+      const nd = new Date(date + 'T00:00:00+05:30');
+      nd.setDate(nd.getDate() + 1);
+      body.end = { date: nd.toISOString().slice(0, 10) };
+    }
+
+    const targetCalId = isSchool ? 'primary' : 'primary';
+    try {
+      // Try live Calendar API first
+      const result = await CalendarAPI.createEvent(body, targetCalId);
+      preview.innerHTML = `
+        <span class="snp-type event">Added</span>
+        <p class="snp-title">${escapeHtml(smartNoteParsed.title)}</p>
+        <p class="snp-details">Saved to Google Calendar</p>
+      `;
+    } catch (calErr) {
+      // Calendar API failed (token expired, re-auth flaky) → queue via workflow dispatch
+      console.warn('[SmartNote] Calendar API failed, trying workflow dispatch:', calErr.message);
+      const inputs = {
+        event_title: title,
+        event_date: date,
+        event_start: startTime || '',
+        event_end: endTime || '',
+        event_is_school: isSchool ? 'true' : 'false'
+      };
+      await DataAPI.triggerWorkflow('sync.yml', inputs);
+      preview.innerHTML = `
+        <span class="snp-type event">Queued</span>
+        <p class="snp-title">${escapeHtml(smartNoteParsed.title)}</p>
+        <p class="snp-details">Calendar write queued — will appear after next sync.</p>
+      `;
+    }
     $('#smart-note-input').value = '';
     smartNoteParsed = null;
-    // Refresh the month calendar to show the new event
     loadMonth();
   } catch (err) {
     preview.innerHTML = `<p class="empty-note" style="color:var(--accent)">Save failed: ${escapeHtml(err.message)}</p>`;
@@ -774,13 +802,8 @@ async function saveSmartNote() {
 window.saveSmartNote = saveSmartNote;
 
 function dismissSmartNote() {
-  // If it was a non-event, auto-save to notes list
   if (smartNoteParsed && !smartNoteParsed.isEvent && smartNoteParsed.title) {
-    api('/api/notes/add', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: smartNoteParsed.title })
-    }).then(() => loadNotes());
+    NotesAPI.add(smartNoteParsed.title).then(() => loadNotes());
   }
   $('#smart-note-preview').classList.add('hidden');
   $('#smart-note-input').value = '';
@@ -794,23 +817,18 @@ let smartNotePhotoEvents = null;
 async function handleSmartNotePhoto(input) {
   const file = input.files?.[0];
   if (!file) return;
-  
+
   const preview = $('#smart-note-preview');
   preview.classList.remove('hidden');
   preview.innerHTML = '<p class="empty-note">Reading image…</p>';
-  
+
   const reader = new FileReader();
   reader.onload = async () => {
     const base64 = reader.result.split(',')[1];
     preview.innerHTML = '<p class="empty-note">Analyzing with AI…</p>';
-    
+
     try {
-      const result = await api('/api/notes/parse-image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64: base64, mimeType: file.type || 'image/jpeg' })
-      });
-      
+      const result = await NarrativeAPI.parseSmartNotePhoto(base64, file.type || 'image/jpeg');
       const events = result.events || [];
       if (events.length === 0) {
         preview.innerHTML = `
@@ -822,7 +840,7 @@ async function handleSmartNotePhoto(input) {
         `;
         return;
       }
-      
+
       smartNotePhotoEvents = events;
       renderSmartNotePhotoPreview(events);
     } catch (err) {
@@ -830,13 +848,13 @@ async function handleSmartNotePhoto(input) {
     }
   };
   reader.readAsDataURL(file);
-  input.value = ''; // Reset for re-upload
+  input.value = '';
 }
 window.handleSmartNotePhoto = handleSmartNotePhoto;
 
 function renderSmartNotePhotoPreview(events) {
   const preview = $('#smart-note-preview');
-  
+
   if (events.length === 1) {
     const e = events[0];
     const details = [];
@@ -847,12 +865,11 @@ function renderSmartNotePhotoPreview(events) {
     if (e.startTime) {
       const [h, m] = e.startTime.split(':');
       const ampm = parseInt(h) >= 12 ? 'pm' : 'am';
-      const h12 = parseInt(h) % 12 || 12;
-      details.push(`${h12}:${m} ${ampm}`);
+      details.push(`${parseInt(h) % 12 || 12}:${m} ${ampm}`);
     }
     if (e.location) details.push(escapeHtml(e.location));
     const targetCal = e.isSchool ? 'School calendar' : 'Personal calendar';
-    
+
     preview.innerHTML = `
       <span class="snp-type event">Event from Photo</span>
       <p class="snp-title">${escapeHtml(e.title)}</p>
@@ -864,9 +881,8 @@ function renderSmartNotePhotoPreview(events) {
       </div>
     `;
   } else {
-    // Multiple events (timetable)
     const html = events.map((e, i) => {
-      const dayInfo = e.weekly && e.dayOfWeek ? `${e.dayOfWeek} weekly` : 
+      const dayInfo = e.weekly && e.dayOfWeek ? `${e.dayOfWeek} weekly` :
                       e.date ? new Date(e.date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }) : '';
       const timeInfo = e.startTime ? `${e.startTime}${e.endTime ? '–' + e.endTime : ''}` : '';
       const targetCal = e.isSchool ? 'School' : 'Personal';
@@ -878,7 +894,7 @@ function renderSmartNotePhotoPreview(events) {
         </div>
       `;
     }).join('');
-    
+
     preview.innerHTML = `
       <span class="snp-type event">${events.length} events from Photo</span>
       <div class="photo-events-list">${html}</div>
@@ -894,36 +910,57 @@ async function saveSmartNotePhotoEvent(idx) {
   if (!smartNotePhotoEvents || !smartNotePhotoEvents[idx]) return;
   const e = smartNotePhotoEvents[idx];
   const preview = $('#smart-note-preview');
-  
+
   try {
-    const r = await api('/api/calendar/add', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: e.title,
-        date: e.date,
-        startTime: e.startTime,
-        endTime: e.endTime,
-        weekly: e.weekly || false,
-        dayOfWeek: e.dayOfWeek || null,
-        isSchool: e.isSchool || false
-      })
+    if (!CalendarAPI.isConnected()) throw new Error('Google Calendar not connected');
+
+    const tz = 'Asia/Kolkata';
+    const body = { summary: e.title, description: 'Added via Daily Briefing' };
+
+    if (e.startTime) {
+      const [sh, sm] = e.startTime.split(':').map(Number);
+      const [eh, em] = (e.endTime || `${sh + 1}:${String(sm).padStart(2, '0')}`).split(':').map(Number);
+      const pad = n => String(n).padStart(2, '0');
+      let endDate = e.date;
+      if (eh < sh || (eh === sh && em <= sm)) {
+        const nd = new Date(e.date + 'T00:00:00+05:30');
+        nd.setDate(nd.getDate() + 1);
+        endDate = nd.toISOString().slice(0, 10);
+      }
+      body.start = { dateTime: `${e.date}T${pad(sh)}:${pad(sm)}:00+05:30`, timeZone: tz };
+      body.end = { dateTime: `${endDate}T${pad(eh)}:${pad(em)}:00+05:30`, timeZone: tz };
+    } else {
+      body.start = { date: e.date };
+      const nd = new Date(e.date + 'T00:00:00+05:30');
+      nd.setDate(nd.getDate() + 1);
+      body.end = { date: nd.toISOString().slice(0, 10) };
+    }
+
+    const result = await CalendarAPI.createEvent(body, 'primary').catch(async (calErr) => {
+      // Calendar API failed → queue via workflow dispatch
+      console.warn('[SmartNotePhoto] Calendar API failed, queuing:', calErr.message);
+      await DataAPI.triggerWorkflow('sync.yml', {
+        event_title: e.title,
+        event_date: e.date,
+        event_start: e.startTime || '',
+        event_end: e.endTime || '',
+        event_is_school: e.isSchool ? 'true' : 'false'
+      });
+      return null; // null signals queued, not directly added
     });
-    
-    // Mark as saved
+
     smartNotePhotoEvents[idx]._saved = true;
-    
-    // Re-render if multiple, or show success if single
+    const wasQueued = result === null;
+
     if (smartNotePhotoEvents.length === 1) {
       preview.innerHTML = `
-        <span class="snp-type event">Added</span>
+        <span class="snp-type event">${wasQueued ? 'Queued' : 'Added'}</span>
         <p class="snp-title">${escapeHtml(e.title)}</p>
-        <p class="snp-details">Saved to <a href="${r.link}" target="_blank" style="color:var(--accent)">Google Calendar</a></p>
+        <p class="snp-details">${wasQueued ? 'Queued for next sync.' : 'Saved to Google Calendar'}</p>
       `;
       smartNotePhotoEvents = null;
       loadMonth();
     } else {
-      // Update the specific item to show "saved"
       const items = preview.querySelectorAll('.photo-event-item');
       if (items[idx]) {
         items[idx].querySelector('button').textContent = '✓ Saved';
@@ -940,30 +977,16 @@ window.saveSmartNotePhotoEvent = saveSmartNotePhotoEvent;
 async function saveAllSmartNotePhotoEvents() {
   if (!smartNotePhotoEvents || smartNotePhotoEvents.length === 0) return;
   const preview = $('#smart-note-preview');
-  
+
   let saved = 0, failed = 0;
   for (let i = 0; i < smartNotePhotoEvents.length; i++) {
     if (smartNotePhotoEvents[i]._saved) continue;
     try {
-      const e = smartNotePhotoEvents[i];
-      await api('/api/calendar/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: e.title,
-          date: e.date,
-          startTime: e.startTime,
-          endTime: e.endTime,
-          weekly: e.weekly || false,
-          dayOfWeek: e.dayOfWeek || null,
-          isSchool: e.isSchool || false
-        })
-      });
-      smartNotePhotoEvents[i]._saved = true;
+      await saveSmartNotePhotoEvent(i);
       saved++;
     } catch { failed++; }
   }
-  
+
   preview.innerHTML = `
     <span class="snp-type event">Done</span>
     <p class="snp-title">${saved} event${saved !== 1 ? 's' : ''} saved${failed ? `, ${failed} failed` : ''}</p>
@@ -984,7 +1007,7 @@ let notesLoaded = false;
 
 async function loadNotes() {
   try {
-    const notes = await api('/api/notes/list');
+    const notes = await NotesAPI.list();
     renderNotes(notes);
     notesLoaded = true;
   } catch (err) {
@@ -1017,11 +1040,7 @@ async function addNote() {
   const text = (input.value || '').trim();
   if (!text) return;
   try {
-    await api('/api/notes/add', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text })
-    });
+    await NotesAPI.add(text);
     input.value = '';
     loadNotes();
   } catch (err) {
@@ -1037,7 +1056,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function toggleNote(id) {
   try {
-    await api(`/api/notes/${id}/toggle`, { method: 'PATCH' });
+    await NotesAPI.toggle(id);
     loadNotes();
   } catch (err) { toast('Failed'); }
 }
@@ -1045,129 +1064,288 @@ window.toggleNote = toggleNote;
 
 async function deleteNote(id) {
   try {
-    await api(`/api/notes/${id}`, { method: 'DELETE' });
+    await NotesAPI.remove(id);
     loadNotes();
   } catch (err) { toast('Failed'); }
 }
 window.deleteNote = deleteNote;
 
 // ---------- Load ----------
+
+/**
+ * Build schedule data from calendar events + school calendar.
+ */
+async function buildSchedule() {
+  const todayKey = istTodayKey();
+  const tomorrowKey = istTomorrowKey();
+  const now = new Date();
+  const weekEnd = new Date(now.getTime() + 7 * 86400000);
+  const endOfTomorrow = new Date(now.getTime() + 2 * 86400000);
+
+  // Next Saturday
+  const saturday = new Date(now);
+  saturday.setDate(saturday.getDate() + ((6 - saturday.getDay() + 7) % 7 || 7));
+  const satKey = saturday.toISOString().slice(0, 10);
+
+  let calendarEvents = [];
+  let schoolItems = [];
+
+  // Fetch from both sources in parallel
+  const [calResult, schoolResult] = await Promise.allSettled([
+    CalendarAPI.isConnected()
+      ? CalendarAPI.fetchEventsInRange(now, weekEnd, 100)
+      : Promise.resolve([]),
+    DataAPI.getSchoolCalendar()
+  ]);
+
+  if (calResult.status === 'fulfilled') calendarEvents = calResult.value;
+  if (schoolResult.status === 'fulfilled') schoolItems = schoolResult.value;
+
+  // Today's classes: calendar events that aren't exams/tests/holidays
+  const istHour = istNow().getUTCHours();
+  const nowTime = istNow().toISOString().slice(11, 16);
+
+  let classesRaw;
+  if (istHour < 17) {
+    // Before 5 PM: remaining classes today
+    classesRaw = calendarEvents
+      .filter(e => (e.start || '').slice(0, 10) === todayKey)
+      .filter(isClassEvent)
+      .filter(e => (e.start || '').slice(11, 16) >= nowTime)
+      .sort((a, b) => (a.start || '').localeCompare(b.start || ''))
+      .map(e => cleanTitle(e.title));
+  } else {
+    // After 5 PM: tomorrow's classes
+    classesRaw = [];
+  }
+
+  const classes = groupClasses(classesRaw);
+
+  // If no classes today, show tomorrow's
+  let showTomorrow = false;
+  let tomorrowClasses = [];
+  let tomorrowDay = null;
+  if (!classes.length) {
+    tomorrowClasses = calendarEvents
+      .filter(e => (e.start || '').slice(0, 10) === tomorrowKey)
+      .filter(isClassEvent)
+      .sort((a, b) => (a.start || '').localeCompare(b.start || ''))
+      .map(e => cleanTitle(e.title));
+    const groupedTomorrow = groupClasses(tomorrowClasses);
+    if (groupedTomorrow.length > 0) {
+      showTomorrow = true;
+      tomorrowDay = tomorrowKey;
+    }
+  }
+
+  // Upcoming tests/practicals/exams from calendar
+  const upcomingTests = calendarEvents
+    .filter(e => /exam|test|akats|quiz|practical/i.test(e.title))
+    .filter(e => new Date(e.start) >= now && new Date(e.start) <= weekEnd)
+    .map(e => {
+      const t = (e.title || '').toLowerCase();
+      let kind = 'test';
+      if (/practical/i.test(e.title)) kind = 'practical';
+      else if (/exam/i.test(e.title)) kind = 'exam';
+      else if (/quiz|akats/i.test(e.title)) kind = 'quiz';
+      return { title: e.title, date: e.start, kind };
+    })
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  // Saturday check
+  const satHoliday = schoolItems.find(h => (h.metadata?.startDate || '') === satKey);
+  const sat = {
+    date: satKey,
+    isHoliday: !!satHoliday,
+    reason: satHoliday ? satHoliday.title : null
+  };
+
+  return {
+    classes: classes,
+    showTomorrow: showTomorrow,
+    tomorrowDay: tomorrowDay,
+    tomorrowClasses: groupClasses(tomorrowClasses),
+    upcomingTests: upcomingTests,
+    saturday: sat,
+    classesPlaceholder: !classes.length && !showTomorrow
+  };
+}
+
+/**
+ * Build briefing data from DataAPI (NPS + Gmail) + NewsAPI.
+ */
+async function buildBriefing() {
+  const [assignments, notifications, circulars, emails, newsArticles] = await Promise.allSettled([
+    DataAPI.getAssignments(),
+    DataAPI.getNotifications(),
+    DataAPI.getCirculars(),
+    DataAPI.getEmails(),
+    SecureStore.getNewsKey().then(key => NewsAPI.fetch(key))
+  ]);
+
+  return {
+    assignments: assignments.status === 'fulfilled' ? (assignments.value || []).map(a => ({
+      id: a.id,
+      title: a.title,
+      subject: a.metadata?.subject,
+      teacher: a.metadata?.teacher,
+      content: a.content,
+      summary: a.summary
+    })) : [],
+    notifications: notifications.status === 'fulfilled' ? (notifications.value || []).map(n => ({
+      id: n.id,
+      title: n.title,
+      summary: n.summary,
+      content: n.content,
+      postedDate: n.postedDate
+    })) : [],
+    circulars: circulars.status === 'fulfilled' ? (circulars.value || []).map(c => ({
+      id: c.id,
+      title: c.title,
+      category: c.metadata?.category,
+      hasPdf: !!c.metadata?.circularId,
+      postedDate: c.postedDate
+    })) : [],
+    emails: emails.status === 'fulfilled' ? (emails.value || []).map(e => ({
+      id: e.id,
+      title: e.title,
+      from: e.metadata?.from,
+      summary: e.summary,
+      gmailUrl: e.metadata?.messageId ? `https://mail.google.com/mail/u/0/#inbox/${e.metadata.messageId}` : null
+    })) : [],
+    news: newsArticles.status === 'fulfilled' ? (newsArticles.value || []).map((n, i) => ({
+      id: 'news-' + i,
+      title: n.title,
+      sourceName: n.source,
+      url: n.url,
+      summary: null
+    })) : []
+  };
+}
+
+/**
+ * Build the narrative on-device using Groq API.
+ */
+async function buildNarrative(briefing, schedule, weather) {
+  try {
+    const now = new Date();
+    const istHour = istNow().getUTCHours();
+    const todayKey = istTodayKey();
+    const tomorrowKey = istTomorrowKey();
+
+    // Determine classes for narrative (same logic as buildSchedule)
+    let classes = [];
+    let classesLabel = '';
+    if (schedule.classes.length) {
+      if (schedule.showTomorrow) {
+        classes = schedule.tomorrowClasses;
+        classesLabel = 'Tomorrow';
+      } else {
+        classes = schedule.classes;
+        classesLabel = istHour < 17 ? 'Remaining today' : 'Tomorrow';
+      }
+    }
+
+    // Build weather line
+    const weatherLine = weather
+      ? `${weather.current.temp}C, ${weather.current.condition}, rain chance ${weather.today?.rainChance ?? 0}%`
+      : 'unavailable';
+
+    // Notifications for today
+    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+    const todayNotifs = briefing.notifications
+      .filter(n => (n.postedDate || '').slice(0, 10) === todayKey)
+      .map(n => `${n.title}: ${(n.content || '').substring(0, 300)}`);
+
+    return await NarrativeAPI.generateNarrative({
+      weather: weatherLine,
+      classes: classes,
+      classesLabel: classesLabel,
+      todaySchoolNotifications: todayNotifs.length ? todayNotifs : briefing.notifications.slice(0, 3).map(n => `${n.title}: ${(n.content || '').substring(0, 300)}`),
+      recentEmails: briefing.emails.map(e => e.title),
+      news: briefing.news.map(n => n.title),
+      eventsThisWeek: schedule.upcomingTests.map(t => `${t.title} (${(t.date || '').slice(0, 10)})`)
+    });
+  } catch (err) {
+    console.error('[Narrative] Build failed:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Main load function. Fetches all data and renders.
+ */
 async function loadAll() {
   setDateline();
-  updateCacheAge('');
+  updateCacheAge('loading…');
 
-  // --- Phase 1: Read native cache + render instantly ---
-  const [schedCache, briefCache, calCache, wxCache] = await Promise.all([
-    readNativeCache('schedule'),
-    readNativeCache('briefing'),
-    readNativeCache('calendar'),
-    readNativeCache('weather')
-  ]);
-
-  if (schedCache?.data) renderSchedule(schedCache.data);
-  if (briefCache?.data) renderBriefing(briefCache.data);
-  if (calCache?.data?.events) {
-    monthEvents = calCache.data.events;
-    calListExpanded = false;
-    renderCalendar();
-    // Auto-select today
-    const now = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
-    const todayKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
-    selectDay(todayKey);
-  }
-  if (wxCache?.data) {
-    const w = wxCache.data;
-    if (!w.error) {
-      $('#w-temp').textContent = `${w.current.temp}°`;
-      $('#w-cond').textContent = w.current.condition;
-      $('#w-range').textContent = `H ${w.today.max}° · L ${w.today.min}° · ${w.today.rainChance}% rain`;
-    }
-  }
-
-  // Show cache age from the freshest cached item
-  const ages = [schedCache, briefCache, calCache, wxCache]
-    .filter(c => c?.savedAt).map(c => c.savedAt);
-  if (ages.length) {
-    updateCacheAge(cacheAgeText(Math.max(...ages)));
-  } else {
-    updateCacheAge('no cache');
-  }
-
-  // --- Phase 2: Background fetch from server, re-render in place ---
-  const [schedResult, briefResult, calResult, wxResult] = await Promise.allSettled([
-    api('/api/schedule/today'),
-    api('/api/briefing'),
-    api('/api/calendar/month'),
-    api('/api/weather')
-  ]);
-
-  if (schedResult.status === 'fulfilled') {
-    renderSchedule(schedResult.value);
-    writeLocalCache('schedule', schedResult.value);
-  }
-  if (briefResult.status === 'fulfilled') {
-    renderBriefing(briefResult.value);
-    writeLocalCache('briefing', briefResult.value);
-  }
-  if (calResult.status === 'fulfilled') {
-    monthEvents = calResult.value.events || [];
-    calListExpanded = false;
-    renderCalendar();
-    writeLocalCache('calendar', calResult.value);
-    const now = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
-    const todayKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
-    selectDay(todayKey);
-  }
-  if (wxResult.status === 'fulfilled') {
-    const w = wxResult.value;
-    if (!w.error) {
-      $('#w-temp').textContent = `${w.current.temp}°`;
-      $('#w-cond').textContent = w.current.condition;
-      $('#w-range').textContent = `H ${w.today.max}° · L ${w.today.min}° · ${w.today.rainChance}% rain`;
-    }
-    writeLocalCache('weather', wxResult.value);
-  }
-
-  updateCacheAge('just now');
-
-  // Health check (fire-and-forget)
   try {
-    const h = await api('/api/health');
-    $('#footer-status').textContent = `db ${h.db} · nps ${h.nps?.loggedIn ? 'ok' : 'down'} · gmail ${h.gmail} · calendar ${h.calendar}`;
-  } catch {
-    $('#footer-status').textContent = 'server unreachable';
+    // Run all data fetches in parallel
+    const [briefing, weather, schedule] = await Promise.allSettled([
+      buildBriefing(),
+      WeatherAPI.fetch(),
+      buildSchedule()
+    ]);
+
+    const briefingData = briefing.status === 'fulfilled' ? briefing.value : null;
+    const weatherData = weather.status === 'fulfilled' ? weather.value : null;
+    const scheduleData = schedule.status === 'fulfilled' ? schedule.value : null;
+
+    // Render what we have
+    if (scheduleData) renderSchedule(scheduleData);
+    if (briefingData) renderBriefing(briefingData);
+    if (weatherData && !weatherData.error) {
+      $('#w-temp').textContent = `${weatherData.current.temp}°`;
+      $('#w-cond').textContent = weatherData.current.condition;
+      $('#w-range').textContent = `H ${weatherData.today.max}° · L ${weatherData.today.min}° · ${weatherData.today.rainChance}% rain`;
+    }
+
+    // Load month calendar
+    loadMonth();
+
+    // Generate narrative in background (don't block render)
+    if (briefingData) {
+      buildNarrative(briefingData, scheduleData, weatherData).then(narrative => {
+        if (narrative) {
+          briefingData.narrative = narrative;
+          renderBriefing(briefingData);
+        }
+      }).catch(() => {});
+    }
+
+    updateCacheAge('just now');
+  } catch (err) {
+    console.error('[LoadAll] Fatal error:', err);
+    updateCacheAge('failed');
   }
 }
 
 // ---------- Modal ----------
 async function viewItem(id) {
   try {
-    const i = await api(`/api/items/${id}`);
+    // Find the item from cached briefing data
+    const all = await DataAPI.getAllItems();
+    const i = all.find(item => item.id === id);
+    if (!i) throw new Error('Item not found');
+
     const meta = i.metadata || {};
     let extra = '';
     if (i.type === 'circular' && meta.circularId) {
-      extra = `<div id="circ-detail" class="muted">loading circular detail…</div>`;
+      extra = `<div id="circ-detail" class="muted">NPS portal detail not available in offline mode.</div>`;
     }
 
     const attachments = [];
-    if (i.type === 'assignment' && meta.downloadUrl) {
-      attachments.push(`<button class="btn" onclick="window.open('/api/attachments/assignment/${i._id}')">Download file</button>`);
-    }
-    if (i.type === 'circular' && meta.circularId) {
-      attachments.push(`<button class="btn" onclick="window.open('/api/attachments/circular/${i._id}')">Download PDF</button>`);
-    }
-    if (i.type === 'email' && i.gmailUrl) {
-      attachments.push(`<button class="btn" onclick="window.open('${i.gmailUrl}','_blank')">Open in Gmail</button>`);
+    if (i.type === 'email' && i.metadata?.messageId) {
+      const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${i.metadata.messageId}`;
+      attachments.push(`<button class="btn" onclick="window.open('${gmailUrl}','_blank')">Open in Gmail</button>`);
     }
     if (i.type === 'news' && meta.url) {
       attachments.push(`<button class="btn" onclick="window.open('${escapeHtml(meta.url)}','_blank')">Read article</button>`);
     }
 
-    const isNps = i.source === 'nps';
     const bodyHtml = i.type === 'email'
       ? ''
-      : `${!isNps && i.summary ? `<h2 class="rail-head">Summary</h2><div class="rule-light"></div><div class="content-block">${renderRichText(i.summary, itemRegistry)}</div>` : ''}
-         <h2 class="rail-head">Content</h2><div class="rule-light"></div>
+      : `<h2 class="rail-head">Content</h2><div class="rule-light"></div>
          <div class="content-block">${escapeHtml(i.content || '(empty)')}</div>`;
 
     $('#modal-content').innerHTML = `
@@ -1183,36 +1361,22 @@ async function viewItem(id) {
       ${extra}
       ${attachments.length ? `<div class="btn-row">${attachments.join('')}</div>` : ''}
       <div class="btn-row">
-        <button class="btn danger" onclick="deleteItem('${i._id}')">Delete</button>
+        <button class="btn danger" onclick="deleteItem('${i.id}')">Delete</button>
       </div>
     `;
     openModal();
-
-    if (i.type === 'circular' && meta.circularId) {
-      try {
-        const d = await api(`/api/circular/${i._id}/detail`);
-        $('#circ-detail').innerHTML = `
-          <h2 class="rail-head">From the portal</h2><div class="rule-light"></div>
-          <div class="content-block">${escapeHtml(d.body || '(no body)')}</div>
-          ${d.downloadUrl ? `<div class="btn-row"><button class="btn" onclick="window.open('/api/attachments/circular/${i._id}')">Download PDF</button></div>` : '<p class="empty-note">No PDF attached.</p>'}
-        `;
-      } catch (err) {
-        $('#circ-detail').innerHTML = `<div class="content-block" style="color:var(--accent)">detail fetch failed: ${escapeHtml(err.message)}</div>`;
-      }
-    }
   } catch (err) {
     alert(err.message);
   }
 }
 window.viewItem = viewItem;
-window.jumpTo = jumpTo;
 window.closeModal = closeModal;
 window.deleteItem = deleteItem;
 
 function openModal() {
   const m = $('#modal');
-  m.classList.remove('hidden');       // legacy no-op safety
-  void m.offsetWidth;                 // force reflow so transition runs from base state
+  m.classList.remove('hidden');
+  void m.offsetWidth;
   m.classList.add('opening');
   document.body.style.overflow = 'hidden';
 }
@@ -1226,7 +1390,7 @@ function closeModal() {
 async function deleteItem(id) {
   if (!confirm('Delete this item?')) return;
   try {
-    await api(`/api/items/${id}`, { method: 'DELETE' });
+    DataAPI.deleteItemFromCache(id);
     closeModal();
     loadAll();
   } catch (err) {
@@ -1235,5 +1399,29 @@ async function deleteItem(id) {
 }
 
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
-initPullToRefresh();
-loadAll();
+
+// ---------- First launch setup check ----------
+async function checkFirstLaunch() {
+  const isFirst = await SecureStore.isFirstLaunch();
+  if (isFirst) {
+    // Show a gentle setup prompt
+    const narr = $('#sec-narrative');
+    narr.innerHTML = `
+      <p class="narrative-text">Welcome to <b>The Daily Briefing</b>. To get started, you'll need to configure your GitHub PAT and API keys.</p>
+      <p class="narrative-text muted" style="font-size:0.85em">Open the debug page to configure settings: <a href="debug.html">debug.html</a></p>
+    `;
+  }
+}
+
+// ---------- Init ----------
+(async function init() {
+  // Handle Google Calendar OAuth redirect callback (web preview only)
+  try { await CalendarAPI.handleRedirectCallback(); } catch (e) { /* redirect in progress */ }
+
+  // Load saved Google Calendar tokens from SecureStore
+  try { await CalendarAPI.loadTokens(); } catch (e) { /* no saved tokens */ }
+
+  initPullToRefresh();
+  await checkFirstLaunch();
+  await loadAll();
+})();

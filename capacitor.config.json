@@ -1,0 +1,11 @@
+{
+  "appId": "com.nithilan.dailybriefing",
+  "appName": "Daily Briefing",
+  "webDir": "public",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "GoogleSignIn": {}
+  }
+}
