@@ -1,0 +1,19 @@
+name: Keep Render Alive
+
+on:
+  schedule:
+    # Every 14 min, 5:00–23:59 (skips 00:00–04:59)
+    - cron: '*/14 5-23 * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping Render to prevent spin-down
+        run: |
+          curl -fsS --max-time 30 \
+            -H "User-Agent: Mozilla/5.0 (compatible; KeepAliveBot/1.0)" \
+            https://daily-briefing-6ahp.onrender.com/ \
+            > /dev/null && echo "OK" || exit 1
